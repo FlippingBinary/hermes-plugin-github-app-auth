@@ -52,6 +52,18 @@ def _json_result(data: dict[str, Any]) -> str:
 
 
 def _github_app_login_handler(args: ToolArgs, **kwargs: Any) -> str:
+    if _auth is None:
+        return _json_result(
+            {
+                "status": "error",
+                "message": (
+                    "Plugin not configured: GITHUB_APP_CLIENT_ID and "
+                    "GITHUB_APP_PRIVATE_KEY environment variables must "
+                    "be set by the user."
+                ),
+            }
+        )
+
     repo = args.get("repo", "").strip()
     if not repo or "/" not in repo:
         return _json_result(
@@ -183,8 +195,14 @@ def register(ctx: PluginContext) -> None:
 
     client_id = os.environ.get("GITHUB_APP_CLIENT_ID")
     private_key = os.environ.get("GITHUB_APP_PRIVATE_KEY")
-
-    _auth = GitHubAppAuth(client_id, private_key)
+    if client_id is not None and private_key is not None:
+        _auth = GitHubAppAuth(client_id, private_key)
+    else:
+        _auth = None
+        logger.error(
+            "GITHUB_APP_CLIENT_ID and GITHUB_APP_PRIVATE_KEY must be set "
+            "for github_app_login to function"
+        )
     _ctx = ctx
 
     ctx.register_tool(
