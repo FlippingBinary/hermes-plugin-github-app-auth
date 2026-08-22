@@ -7,19 +7,19 @@ GitHub App authentication for Hermes Agent. Provides tools to authenticate as a 
 - **`github_app_login`** — Authenticates as a GitHub App installation for a specific repo
 - **`github_app_logout`** — Revokes the installation access token and clears local state
 - **`pre_llm_call` hook** — Injects GitHub App auth status into the agent's context each turn
-- **`pre_tool_call` hook** — Prefixes every `terminal` tool call with `GH_TOKEN`, git identity env vars, and `GIT_CONFIG_*` env vars that rewrite SSH remotes to HTTPS and inject bearer token authentication
+- **`pre_tool_call` hook** — Prefixes every `terminal` tool call with environment variables overriding `git` config and `gh` credentials
 
 ## Security
 
-This plugin prevents the agent from accidentally using the human user's GitHub credentials on shared workstations:
+This plugin reduces the risk of the agent accidentally using the human user's GitHub credentials on shared workstations by taking certain precautions:
 
-- `GH_TOKEN` is injected per-command via `export`, never written to disk or config files
-- Git identity env vars (`GIT_AUTHOR_*`, `GIT_COMMITTER_*`) override any on-disk git config
-- SSH GitHub remote URLs are rewritten to HTTPS via `url.insteadOf` so SSH keys are never used
-- Bearer token authentication is injected via `http.extraHeader` so git authenticates with the installation token, not stored credentials
-- When unauthenticated, `GH_TOKEN` and the `extraHeader` token are set to `invalid` to prevent accidental use of cached/stored credentials
-- Private key and client ID are read only from environment variables
-- Installation access tokens (IATs) are revoked on logout when possible
+- The private key and client ID of the Github App are read from environment variables, not from disk
+- Installation access tokens (IATs) are short-lived (60 minutes) and only injected into the environment, not written to disk or config files
+- Git identity env vars (`GIT_AUTHOR_*`, `GIT_COMMITTER_*`) override any on-disk git config, avoiding improper attribution
+- SSH GitHub remote URLs are rewritten to HTTPS via `url.insteadOf` so SSH keys are not used for GitHub operations
+- When unauthenticated, the IAT is set to `invalid` so git gets a 401 instead of falling back to cached/stored credentials
+
+Those precautions do NOT eliminate all risks of leaking the Github App's private key to the agent, but it makes it easier to limit those risks. For tighter security, the user should run Hermes Agent in a containerized environment that doesn't have the private key on disk. As long as the Github App's private key is only made available to the Hermes Agent as an environment variable, Hermes Agent doesn't automatically pass it along to commands the agent may run. This effectively prevents the agent from accidentally exfiltrating it in LLM requests or terminal commands because it can't even view it. The short-lived IAT is accessible to it, but the 60 minute expiration makes it difficult for an accidentally leaked IAT to be used by a third-party.
 
 ## Requirements
 
