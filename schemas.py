@@ -1,4 +1,6 @@
-LOGIN_SCHEMA = {
+from typing import Any, Final
+
+LOGIN_SCHEMA: Final[dict[str, Any]] = {
     "type": "object",
     "properties": {
         "repo": {
@@ -9,7 +11,7 @@ LOGIN_SCHEMA = {
     "required": ["repo"],
 }
 
-LOGOUT_SCHEMA = {
+LOGOUT_SCHEMA: Final[dict[str, Any]] = {
     "type": "object",
     "properties": {},
     "description": "No arguments. Clears and revokes the current GitHub App installation token.",

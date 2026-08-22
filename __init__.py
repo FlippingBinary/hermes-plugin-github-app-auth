@@ -1,22 +1,57 @@
+from __future__ import annotations
+
 import json
 import logging
 import os
 import shlex
+from typing import Any, Callable, Protocol, overload
 
-from .github_auth import AuthState, GitHubAppAuth
+from .github_auth import AuthState, AuthStatus, GitHubAppAuth
 from .schemas import LOGIN_SCHEMA, LOGOUT_SCHEMA
 
 logger = logging.getLogger(__name__)
 
+ToolArgs = dict[str, Any]
+JSONSchema = dict[str, Any]
+
+
+class PluginContext(Protocol):
+    def register_tool(
+        self,
+        name: str,
+        toolset: str,
+        schema: JSONSchema,
+        handler: Callable[[ToolArgs], str],
+        *,
+        override: bool = False,
+        check_fn: Callable[..., bool] | None = None,
+    ) -> None: ...
+
+    def register_hook(
+        self,
+        event_name: str,
+        callback: Callable[..., Any],
+    ) -> None: ...
+
+    @overload
+    def get_config(self, key: str) -> Any: ...
+
+    @overload
+    def get_config(self, key: str, default: Any) -> Any: ...
+
+    def get_config(self, key: str, default: Any = ...) -> Any: ...
+
+
 _auth_state = AuthState()
-_auth = None
+_auth: GitHubAppAuth | None = None
+_ctx: PluginContext | None = None
 
 
-def _json_result(data):
+def _json_result(data: dict[str, Any]) -> str:
     return json.dumps(data)
 
 
-def _github_app_login_handler(args, **kwargs):
+def _github_app_login_handler(args: ToolArgs, **kwargs: Any) -> str:
     repo = args.get("repo", "").strip()
     if not repo or "/" not in repo:
         return _json_result(
@@ -46,7 +81,7 @@ def _github_app_login_handler(args, **kwargs):
         return _json_result({"status": "error", "message": str(e)})
 
 
-def _github_app_logout_handler(args, **kwargs):
+def _github_app_logout_handler(args: ToolArgs, **kwargs: Any) -> str:
     iat = _auth_state.get_iat()
     if iat is None:
         return _json_result({"status": "already_logged_out"})
@@ -58,7 +93,12 @@ def _github_app_logout_handler(args, **kwargs):
     return _json_result({"status": "logged_out", "revoked": revoked})
 
 
-def _pre_llm_call_hook(session_id, user_message, conversation_history, **kwargs):
+def _pre_llm_call_hook(
+    session_id: str,
+    user_message: str,
+    conversation_history: list[dict[str, Any]],
+    **kwargs: Any,
+) -> dict[str, str]:
     status = _auth_state.get_status()
     if status is None:
         message = (
@@ -82,8 +122,16 @@ def _pre_llm_call_hook(session_id, user_message, conversation_history, **kwargs)
     return {"context": message}
 
 
-def _pre_tool_call_hook(tool_name, args, task_id, **kwargs):
+def _pre_tool_call_hook(
+    tool_name: str,
+    args: ToolArgs,
+    task_id: str,
+    **kwargs: Any,
+) -> dict[str, Any] | None:
     if tool_name != "terminal":
+        return None
+
+    if _ctx is None:
         return None
 
     if not isinstance(args, dict):
@@ -91,9 +139,12 @@ def _pre_tool_call_hook(tool_name, args, task_id, **kwargs):
 
     status = _auth_state.get_status()
     expired = _auth_state.is_token_expired()
-    gh_token = status and not expired and _auth_state.get_iat() or "invalid"
-    if not gh_token:
-        gh_token = "invalid"
+
+    gh_token = "invalid"
+    if status is not None and not expired:
+        iat = _auth_state.get_iat()
+        if iat is not None:
+            gh_token = iat
 
     git_author_name = _ctx.get_config("git_author_name", "Hermes Agent")
     git_author_email = _ctx.get_config(
@@ -127,10 +178,7 @@ def _pre_tool_call_hook(tool_name, args, task_id, **kwargs):
     return {"action": "modify", "args": modified}
 
 
-_ctx = None
-
-
-def register(ctx):
+def register(ctx: PluginContext) -> None:
     global _auth, _ctx
 
     client_id = os.environ.get("GITHUB_APP_CLIENT_ID")
