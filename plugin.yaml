@@ -36,3 +36,7 @@ config_schema:
   git_committer_email:
     type: str
     default: "hermes-agent[bot]@users.noreply.github.com"
+  github_domains:
+    type: list
+    default:
+      - "github.com"

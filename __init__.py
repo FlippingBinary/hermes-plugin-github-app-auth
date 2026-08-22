@@ -166,14 +166,35 @@ def _pre_tool_call_hook(
     git_committer_email = _ctx.get_config(
         "git_committer_email", "hermes-agent[bot]@users.noreply.github.com"
     )
+    github_domains = _ctx.get_config("github_domains", ["github.com"])
 
-    env_prefix = (
-        f"export GH_TOKEN={shlex.quote(gh_token)} "
-        f"GIT_AUTHOR_NAME={shlex.quote(git_author_name)} "
-        f"GIT_AUTHOR_EMAIL={shlex.quote(git_author_email)} "
-        f"GIT_COMMITTER_NAME={shlex.quote(git_committer_name)} "
-        f"GIT_COMMITTER_EMAIL={shlex.quote(git_committer_email)}; "
-    )
+    config_pairs: list[tuple[str, str]] = []
+    for domain in github_domains:
+        config_pairs.append((f"url.https://{domain}/.insteadOf", f"git@{domain}:"))
+        config_pairs.append(
+            (f"url.https://{domain}/.insteadOf", f"ssh://git@{domain}/")
+        )
+        config_pairs.append(
+            (
+                f"http.https://{domain}/.extraHeader",
+                f"Authorization: Bearer {gh_token}",
+            )
+        )
+
+    env_parts = [
+        f"GH_TOKEN={shlex.quote(gh_token)}",
+        "GIT_CONFIG_GLOBAL=/dev/null",
+        f"GIT_AUTHOR_NAME={shlex.quote(git_author_name)}",
+        f"GIT_AUTHOR_EMAIL={shlex.quote(git_author_email)}",
+        f"GIT_COMMITTER_NAME={shlex.quote(git_committer_name)}",
+        f"GIT_COMMITTER_EMAIL={shlex.quote(git_committer_email)}",
+        f"GIT_CONFIG_COUNT={len(config_pairs)}",
+    ]
+    for i, (key, value) in enumerate(config_pairs):
+        env_parts.append(f"GIT_CONFIG_KEY_{i}={shlex.quote(key)}")
+        env_parts.append(f"GIT_CONFIG_VALUE_{i}={shlex.quote(value)}")
+
+    env_prefix = f"export {' '.join(env_parts)}; "
 
     modified = dict(args)
     modified_any = False
