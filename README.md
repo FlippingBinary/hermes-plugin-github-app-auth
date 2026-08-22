@@ -54,11 +54,11 @@ Configurable settings under `plugins.entries.github-app-auth.settings`:
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `git_author_name` | str | `Hermes Agent` | Git author name |
-| `git_author_email` | str | `hermes-agent[bot]@users.noreply.github.com` | Git author email |
-| `git_committer_name` | str | `Hermes Agent` | Git committer name |
-| `git_committer_email` | str | `hermes-agent[bot]@users.noreply.github.com` | Git committer email |
-| `github_domains` | list | `["github.com"]` | GitHub domains for SSH-to-HTTPS rewriting and bearer auth. |
+| `author_name` | str | `Hermes Agent` | Git author name |
+| `author_email` | str | `hermes-agent[bot]@users.noreply.github.com` | Git author email |
+| `committer_name` | str | `Hermes Agent` | Git committer name |
+| `committer_email` | str | `hermes-agent[bot]@users.noreply.github.com` | Git committer email |
+| `domains` | list | `["github.com"]` | GitHub domains for SSH-to-HTTPS rewriting and bearer auth. |
 
 ## Usage
 
@@ -111,14 +111,14 @@ export GH_TOKEN='ghs_xxxx' \
 
 When unauthenticated or the token has expired, `GH_TOKEN` and the `extraHeader` token are set to `invalid` so git gets a 401 instead of falling back to stored credentials.
 
-For GitHub Enterprise, add your domain to `github_domains`:
+For GitHub Enterprise, add your domain to `domains`:
 
 ```yaml
 plugins:
   entries:
     github-app-auth:
       settings:
-        github_domains:
+        domains:
           - github.com
           - github.enterprise.example.com
 ```

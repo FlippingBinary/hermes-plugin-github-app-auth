@@ -24,19 +24,19 @@ python_dependencies:
   - cryptography>=41.0
   - httpx>=0.24,<1
 config_schema:
-  git_author_name:
+  author_name:
     type: str
     default: "Hermes Agent"
-  git_author_email:
+  author_email:
     type: str
     default: "hermes-agent[bot]@users.noreply.github.com"
-  git_committer_name:
+  committer_name:
     type: str
     default: "Hermes Agent"
-  git_committer_email:
+  committer_email:
     type: str
     default: "hermes-agent[bot]@users.noreply.github.com"
-  github_domains:
+  domains:
     type: list
     default:
       - "github.com"

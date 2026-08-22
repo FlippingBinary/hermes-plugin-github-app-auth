@@ -158,15 +158,15 @@ def _pre_tool_call_hook(
         if iat is not None:
             gh_token = iat
 
-    git_author_name = _ctx.get_config("git_author_name", "Hermes Agent")
+    git_author_name = _ctx.get_config("author_name", "Hermes Agent")
     git_author_email = _ctx.get_config(
-        "git_author_email", "hermes-agent[bot]@users.noreply.github.com"
+        "author_email", "hermes-agent[bot]@users.noreply.github.com"
     )
-    git_committer_name = _ctx.get_config("git_committer_name", "Hermes Agent")
+    git_committer_name = _ctx.get_config("committer_name", "Hermes Agent")
     git_committer_email = _ctx.get_config(
-        "git_committer_email", "hermes-agent[bot]@users.noreply.github.com"
+        "committer_email", "hermes-agent[bot]@users.noreply.github.com"
     )
-    github_domains = _ctx.get_config("github_domains", ["github.com"])
+    github_domains = _ctx.get_config("domains", ["github.com"])
 
     config_pairs: list[tuple[str, str]] = []
     for domain in github_domains:
