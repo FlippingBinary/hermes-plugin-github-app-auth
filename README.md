@@ -50,8 +50,7 @@ by a third-party.
 
 ### Python Dependencies
 
-- `PyJWT>=2.8,<3`
-- `cryptography>=41.0`
+- `PyJWT[crypto]>=2.8,<3`
 - `httpx>=0.24,<1`
 
 ## Installation

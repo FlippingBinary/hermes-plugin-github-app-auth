@@ -20,8 +20,7 @@ requires_env:
     description: PEM-format private key for signing GitHub App JWTs
     secret: true
 python_dependencies:
-  - PyJWT>=2.8,<3
-  - cryptography>=41.0
+  - PyJWT[crypto]>=2.8,<3
   - httpx>=0.24,<1
 config_schema:
   author_name:
