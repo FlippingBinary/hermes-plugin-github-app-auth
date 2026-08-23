@@ -64,7 +64,11 @@ hermes plugins install FlippingBinary/hermes-plugin-github-app-auth
 
 ### Manual install
 
-Copy the plugin directory to `~/.hermes/plugins/github-app-auth/`.
+Copy the plugin directory to `~/.hermes/plugins/github-app-auth/`, then enable it:
+
+```bash
+hermes plugins enable github-app-auth
+```
 
 ## Configuration
 
