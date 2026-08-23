@@ -4,7 +4,7 @@ import logging
 import os
 
 from . import tools
-from .github_auth import GitHubAppAuth
+from .github_auth import GitHubAppAuth, _normalize_host
 from .schemas import LOGIN_SCHEMA, LOGOUT_SCHEMA
 
 logger = logging.getLogger(__name__)
@@ -13,8 +13,10 @@ logger = logging.getLogger(__name__)
 def register(ctx: tools.PluginContext) -> None:
     client_id = os.environ.get("GITHUB_APP_CLIENT_ID")
     private_key = os.environ.get("GITHUB_APP_PRIVATE_KEY")
+    host = _normalize_host(os.environ.get("GITHUB_APP_HOST"))
+    tools._github_host = host or "github.com"
     if client_id is not None and private_key is not None:
-        tools._auth = GitHubAppAuth(client_id, private_key)
+        tools._auth = GitHubAppAuth(client_id, private_key, host)
     else:
         tools._auth = None
         logger.error(

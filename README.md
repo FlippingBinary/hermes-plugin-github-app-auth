@@ -1,8 +1,8 @@
 # GitHub App Authentication Plugin for Hermes Agent
 
-GitHub App authentication for Hermes Agent. Provides tools to authenticate as
-a GitHub App installation and automatically scopes `gh`/`git` CLI credentials
-in terminal tool calls.
+GitHub App authentication for [Hermes Agent](https://hermes-agent.nousresearch.com).
+Provides tools to authenticate as a GitHub App installation and automatically
+scopes `gh`/`git` CLI credentials in terminal tool calls.
 
 ## Features
 
@@ -53,10 +53,11 @@ precautions:
 
 ### Environment Variables
 
-| Variable                 | Description                                        | Required |
-| ------------------------ | -------------------------------------------------- | -------- |
-| `GITHUB_APP_CLIENT_ID`   | The GitHub App's client ID (used as JWT issuer)    | Yes      |
-| `GITHUB_APP_PRIVATE_KEY` | PEM-format private key for signing GitHub App JWTs | Yes      |
+| Variable                 | Description                                                                | Required |
+| ------------------------ | -------------------------------------------------------------------------- | -------- |
+| `GITHUB_APP_CLIENT_ID`   | The GitHub App's client ID (used as JWT issuer)                            | Yes      |
+| `GITHUB_APP_PRIVATE_KEY` | PEM-format private key for signing GitHub App JWTs                         | Yes      |
+| `GITHUB_APP_HOST`        | Hostname of the GitHub App's server (e.g. `github.com` or a GHES hostname) | No       |
 
 ### Python Dependencies
 
@@ -83,13 +84,12 @@ hermes plugins enable github-app-auth
 
 Configurable settings under `plugins.entries.github-app-auth.settings`:
 
-| Setting           | Type | Default          | Description                                                                              |
-| ----------------- | ---- | ---------------- | ---------------------------------------------------------------------------------------- |
-| `author_name`     | str  | _auto_           | Git author name. When unset, derived from the GitHub App's `name` via `GET /app`.        |
-| `author_email`    | str  | _auto_           | Git author email. When unset, derived as `{id}+{slug}[bot]@users.noreply.github.com`.    |
-| `committer_name`  | str  | _auto_           | Git committer name. When unset, derived from the GitHub App's `name` via `GET /app`.     |
-| `committer_email` | str  | _auto_           | Git committer email. When unset, derived as `{id}+{slug}[bot]@users.noreply.github.com`. |
-| `domains`         | list | `["github.com"]` | GitHub domains for SSH-to-HTTPS rewriting and token auth.                                |
+| Setting           | Type | Default | Description                                                                              |
+| ----------------- | ---- | ------- | ---------------------------------------------------------------------------------------- |
+| `author_name`     | str  | _auto_  | Git author name. When unset, derived from the GitHub App's `name` via `GET /app`.        |
+| `author_email`    | str  | _auto_  | Git author email. When unset, derived as `{id}+{slug}[bot]@users.noreply.github.com`.    |
+| `committer_name`  | str  | _auto_  | Git committer name. When unset, derived from the GitHub App's `name` via `GET /app`.     |
+| `committer_email` | str  | _auto_  | Git committer email. When unset, derived as `{id}+{slug}[bot]@users.noreply.github.com`. |
 
 ### Auto-detected git identity
 
@@ -111,7 +111,7 @@ will error if the agent attempts to commit) and injects a one-time message into
 the agent's context on the first turn. The agent is instructed to announce the
 failure to the user before taking any other action:
 
-- **Network error** — suggests checking network connectivity to `api.github.com`
+- **Network error** — suggests checking network connectivity to the configured host
 - **Authentication error** — suggests checking the plugin's configuration
   (`GITHUB_APP_CLIENT_ID` and `GITHUB_APP_PRIVATE_KEY` environment variables)
 
@@ -185,22 +185,19 @@ When unauthenticated or the token has expired, `GH_TOKEN` and the `extraHeader`
 token are set to `invalid` so git gets a 401 instead of falling back to stored
 credentials.
 
-For GitHub Enterprise, add your domain to `domains`:
+For GitHub Enterprise, set the `GITHUB_APP_HOST` environment variable to your
+GHES hostname:
 
-```yaml
-plugins:
-  entries:
-    github-app-auth:
-      settings:
-        domains:
-          - github.com
-          - github.enterprise.example.com
+```bash
+export GITHUB_APP_HOST=github.enterprise.example.com
 ```
 
-The `domains` list is used to generate the `GIT_CONFIG_*` values that tell `git`
-to use https with the GitHub App's IAT. The authorization header is injected in
-only git operations involving those domains so that it does not accidentally get
-used for git operations on GitLab or somewhere else.
+The hostname is used to generate the `GIT_CONFIG_*` values that tell `git` to use
+https with the GitHub App's IAT even if the repo is configured with an SSH URL.
+The authorization header is injected only for git operations involving that host
+so that it does not accidentally get used for git operations on GitLab or somewhere
+else. When the host is not `github.com`, the plugin discovers the API base by
+probing `api.{host}` first, then `{host}/api/v3`.
 
 ## License
 

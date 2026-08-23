@@ -125,6 +125,7 @@ _auth_state = AuthState()
 _app_identity_cache = AppIdentityCache()
 _auth: GitHubAppAuth | None = None
 _ctx: PluginContext | None = None
+_github_host: str = "github.com"
 
 STATIC_GUIDANCE_TEXT = (
     "[GitHub App Auth] The github_app_login tool authenticates as a GitHub App "
@@ -314,7 +315,7 @@ def _pre_llm_call_hook(
                     f"up the github-app-auth toolgroup: {error} Please announce "
                     "this failure to the user now, before taking any other "
                     "action. Suggest that the user check network connectivity "
-                    "to api.github.com. Do not attempt to fix this yourself. "
+                    f"to {_github_host}. Do not attempt to fix this yourself. "
                     "Do not create git commits until you have successfully "
                     "called github_app_login."
                 )
@@ -375,22 +376,18 @@ def _terminal_env_middleware(
     git_author_name, git_author_email, git_committer_name, git_committer_email = (
         _resolve_git_identity(_ctx)
     )
-    github_domains = _ctx.get_config("domains", ["github.com"])
+    domain = _github_host
 
     basic_auth = base64.b64encode(f"x-access-token:{gh_token}".encode()).decode()
 
-    config_pairs: list[tuple[str, str]] = []
-    for domain in github_domains:
-        config_pairs.append((f"url.https://{domain}/.insteadOf", f"git@{domain}:"))
-        config_pairs.append(
-            (f"url.https://{domain}/.insteadOf", f"ssh://git@{domain}/")
-        )
-        config_pairs.append(
-            (
-                f"http.https://{domain}/.extraHeader",
-                f"Authorization: Basic {basic_auth}",
-            )
-        )
+    config_pairs: list[tuple[str, str]] = [
+        (f"url.https://{domain}/.insteadOf", f"git@{domain}:"),
+        (f"url.https://{domain}/.insteadOf", f"ssh://git@{domain}/"),
+        (
+            f"http.https://{domain}/.extraHeader",
+            f"Authorization: Basic {basic_auth}",
+        ),
+    ]
 
     env_parts = [
         f"GH_TOKEN={shlex.quote(gh_token)}",

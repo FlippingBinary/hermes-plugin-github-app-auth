@@ -34,8 +34,3 @@ config_schema:
   committer_email:
     type: str
     description: Git committer email for commits created by the agent. When unset, derived as {id}+{slug}[bot]@users.noreply.github.com from GET /app.
-  domains:
-    type: list
-    default:
-      - "github.com"
-    description: GitHub domains for SSH-to-HTTPS rewriting and Basic token injection
