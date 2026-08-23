@@ -1,18 +1,82 @@
 from __future__ import annotations
 
 import base64
+import enum
 import json
 import logging
 import shlex
+import threading
 from collections.abc import Callable
 from typing import Any, Protocol, overload
 
-from .github_auth import AuthState, GitHubAppAuth
+import httpx
+
+from .github_auth import AppIdentity, AuthState, GitHubAppAuth
 
 logger = logging.getLogger(__name__)
 
 ToolArgs = dict[str, Any]
 JSONSchema = dict[str, Any]
+
+
+class _FetchOutcome(enum.Enum):
+    SUCCESS = "success"
+    NETWORK = "network"
+    AUTH = "auth"
+
+
+class AppIdentityCache:
+    """Thread-safe cache for the GitHub App identity fetched from GET /app."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._identity: AppIdentity | None = None
+        self._outcome: _FetchOutcome | None = None
+        self._error: str | None = None
+        self._attempted: bool = False
+        self._pending_injection: bool = False
+
+    @property
+    def is_resolved(self) -> bool:
+        with self._lock:
+            return self._identity is not None
+
+    @property
+    def was_attempted(self) -> bool:
+        with self._lock:
+            return self._attempted
+
+    def has_pending_injection(self) -> bool:
+        with self._lock:
+            return self._pending_injection
+
+    def consume_pending_injection(self) -> tuple[_FetchOutcome, str] | None:
+        with self._lock:
+            if not self._pending_injection:
+                return None
+            self._pending_injection = False
+            assert self._outcome is not None
+            assert self._error is not None
+            return self._outcome, self._error
+
+    def get(self) -> AppIdentity | None:
+        with self._lock:
+            return self._identity
+
+    def set_success(self, identity: AppIdentity) -> None:
+        with self._lock:
+            self._identity = identity
+            self._outcome = _FetchOutcome.SUCCESS
+            self._error = None
+            self._attempted = True
+            self._pending_injection = False
+
+    def set_failure(self, outcome: _FetchOutcome, error: str) -> None:
+        with self._lock:
+            self._outcome = outcome
+            self._error = error
+            self._attempted = True
+            self._pending_injection = True
 
 
 class PluginContext(Protocol):
@@ -58,6 +122,7 @@ class PluginContext(Protocol):
 
 
 _auth_state = AuthState()
+_app_identity_cache = AppIdentityCache()
 _auth: GitHubAppAuth | None = None
 _ctx: PluginContext | None = None
 
@@ -77,6 +142,79 @@ STATIC_GUIDANCE_TEXT = (
 
 def _json_result(data: dict[str, Any]) -> str:
     return json.dumps(data)
+
+
+def _build_noreply_email(app: AppIdentity) -> str:
+    return f"{app['id']}+{app['slug']}[bot]@users.noreply.github.com"
+
+
+def _should_fetch_identity(ctx: PluginContext) -> bool:
+    keys = ("author_name", "author_email", "committer_name", "committer_email")
+    return any(ctx.get_config(key, None) is None for key in keys)
+
+
+def _resolve_git_identity(ctx: PluginContext) -> tuple[str, str, str, str]:
+    identity = _app_identity_cache.get()
+    author_name = ctx.get_config("author_name", None)
+    author_email = ctx.get_config("author_email", None)
+    committer_name = ctx.get_config("committer_name", None)
+    committer_email = ctx.get_config("committer_email", None)
+
+    if identity is not None:
+        if author_name is None:
+            author_name = identity["name"]
+        if author_email is None:
+            author_email = _build_noreply_email(identity)
+        if committer_name is None:
+            committer_name = identity["name"]
+        if committer_email is None:
+            committer_email = _build_noreply_email(identity)
+
+    if author_name is None:
+        author_name = ""
+    if author_email is None:
+        author_email = ""
+    if committer_name is None:
+        committer_name = ""
+    if committer_email is None:
+        committer_email = ""
+
+    return author_name, author_email, committer_name, committer_email
+
+
+def _attempt_identity_fetch() -> None:
+    if _auth is None:
+        _app_identity_cache.set_failure(
+            _FetchOutcome.AUTH,
+            "GITHUB_APP_CLIENT_ID and GITHUB_APP_PRIVATE_KEY environment "
+            "variables must be set for github-app-auth to function.",
+        )
+        return
+
+    try:
+        identity = _auth.get_app()
+        _app_identity_cache.set_success(identity)
+    except httpx.HTTPStatusError as e:
+        status = e.response.status_code if e.response is not None else "unknown"
+        _app_identity_cache.set_failure(
+            _FetchOutcome.AUTH,
+            f"GitHub API returned HTTP {status} while fetching App identity.",
+        )
+    except httpx.TransportError as e:
+        _app_identity_cache.set_failure(
+            _FetchOutcome.NETWORK,
+            f"Network error while fetching App identity: {e}",
+        )
+    except httpx.RequestError as e:
+        _app_identity_cache.set_failure(
+            _FetchOutcome.NETWORK,
+            f"Request error while fetching App identity: {e}",
+        )
+    except Exception as e:
+        _app_identity_cache.set_failure(
+            _FetchOutcome.AUTH,
+            f"Unexpected error while fetching App identity: {e}",
+        )
 
 
 def _github_app_login_handler(args: ToolArgs, **kwargs: Any) -> str:
@@ -108,6 +246,8 @@ def _github_app_login_handler(args: ToolArgs, **kwargs: Any) -> str:
         installation_id = _auth.get_installation_id(owner, repo_name)
         token, expires_at = _auth.create_iat(installation_id)
         _auth_state.set(installation_id, token, f"{owner}/{repo_name}", expires_at)
+        if _ctx is not None and _should_fetch_identity(_ctx):
+            _attempt_identity_fetch()
         return _json_result(
             {
                 "status": "authenticated",
@@ -137,30 +277,75 @@ def _github_app_logout_handler(args: ToolArgs, **kwargs: Any) -> str:
         return _json_result({"status": "error", "message": str(e)})
 
 
+def _on_session_start_hook(
+    session_id: str,
+    model: str,
+    platform: str,
+    **kwargs: Any,
+) -> None:
+    if _ctx is None:
+        return
+    if _app_identity_cache.is_resolved:
+        return
+    if not _should_fetch_identity(_ctx):
+        return
+    _attempt_identity_fetch()
+
+
 def _pre_llm_call_hook(
     session_id: str,
     user_message: str,
     conversation_history: list[dict[str, Any]],
+    is_first_turn: bool = False,
     **kwargs: Any,
 ) -> dict[str, str] | None:
-    if not _auth_state.is_authenticated:
-        return None
-    if not _auth_state.is_token_expired():
-        return None
+    contexts: list[str] = []
 
-    status = _auth_state.get_status()
-    iat = _auth_state.get_iat()
-    if iat is not None and _auth is not None:
-        _auth.revoke_iat(iat)
-    _auth_state.clear()
+    if is_first_turn:
+        if not _app_identity_cache.was_attempted:
+            if _ctx is not None and _should_fetch_identity(_ctx):
+                _attempt_identity_fetch()
+        pending = _app_identity_cache.consume_pending_injection()
+        if pending is not None:
+            outcome, error = pending
+            if outcome is _FetchOutcome.NETWORK:
+                contexts.append(
+                    "[GitHub App Auth] A network error occurred while setting "
+                    f"up the github-app-auth toolgroup: {error} Please announce "
+                    "this failure to the user now, before taking any other "
+                    "action. Suggest that the user check network connectivity "
+                    "to api.github.com. Do not attempt to fix this yourself. "
+                    "Do not create git commits until you have successfully "
+                    "called github_app_login."
+                )
+            elif outcome is _FetchOutcome.AUTH:
+                contexts.append(
+                    "[GitHub App Auth] An authentication error occurred while "
+                    f"setting up the github-app-auth toolgroup: {error} Please "
+                    "announce this failure to the user now, before taking any "
+                    "other action. Suggest that the user check the "
+                    "github-app-auth plugin's configuration and environment "
+                    "variables. Do not attempt to fix this yourself. Do not "
+                    "create git commits until you have successfully called "
+                    "github_app_login."
+                )
 
-    repo = status["repo"] if status is not None else "the repository"
-    return {
-        "context": (
+    if _auth_state.is_authenticated and _auth_state.is_token_expired():
+        status = _auth_state.get_status()
+        iat = _auth_state.get_iat()
+        if iat is not None and _auth is not None:
+            _auth.revoke_iat(iat)
+        _auth_state.clear()
+
+        repo = status["repo"] if status is not None else "the repository"
+        contexts.append(
             f"[GitHub App] Token for {repo} has expired and been revoked. "
             "Use github_app_login again to re-authenticate, if necessary."
         )
-    }
+
+    if contexts:
+        return {"context": "\n\n".join(contexts)}
+    return None
 
 
 def _terminal_env_middleware(
@@ -187,13 +372,8 @@ def _terminal_env_middleware(
         if iat is not None:
             gh_token = iat
 
-    git_author_name = _ctx.get_config("author_name", "Hermes Agent")
-    git_author_email = _ctx.get_config(
-        "author_email", "hermes-agent[bot]@users.noreply.github.com"
-    )
-    git_committer_name = _ctx.get_config("committer_name", "Hermes Agent")
-    git_committer_email = _ctx.get_config(
-        "committer_email", "hermes-agent[bot]@users.noreply.github.com"
+    git_author_name, git_author_email, git_committer_name, git_committer_email = (
+        _resolve_git_identity(_ctx)
     )
     github_domains = _ctx.get_config("domains", ["github.com"])
 

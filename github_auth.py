@@ -21,6 +21,12 @@ class AuthStatus(TypedDict):
     expires_at: str
 
 
+class AppIdentity(TypedDict):
+    id: int
+    slug: str
+    name: str
+
+
 class AuthState:
     """Thread-safe holder for GitHub App installation authentication state."""
 
@@ -115,6 +121,14 @@ class GitHubAppAuth:
             resp.raise_for_status()
             data = resp.json()
             return data["id"]
+
+    def get_app(self) -> AppIdentity:
+        url = f"{GITHUB_API_BASE}/app"
+        with httpx.Client(timeout=30) as client:
+            resp = client.get(url, headers=self._jwt_headers())
+            resp.raise_for_status()
+            data = resp.json()
+            return AppIdentity(id=data["id"], slug=data["slug"], name=data["name"])
 
     def create_iat(self, installation_id: int) -> tuple[str, str]:
         url = f"{GITHUB_API_BASE}/app/installations/{installation_id}/access_tokens"

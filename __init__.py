@@ -43,4 +43,5 @@ def register(ctx: tools.PluginContext) -> None:
         position="after_memory",
     )
     ctx.register_hook("pre_llm_call", tools._pre_llm_call_hook)
+    ctx.register_hook("on_session_start", tools._on_session_start_hook)
     ctx.register_middleware("tool_request", tools._terminal_env_middleware)

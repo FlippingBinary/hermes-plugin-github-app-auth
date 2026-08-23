@@ -11,6 +11,7 @@ provides_tools:
   - github_app_logout
 provides_hooks:
   - pre_llm_call
+  - on_session_start
 requires_env:
   - name: GITHUB_APP_CLIENT_ID
     description: The GitHub App's client ID (used as JWT issuer)
@@ -23,20 +24,16 @@ python_dependencies:
 config_schema:
   author_name:
     type: str
-    default: "Hermes Agent"
-    description: Git author name for commits created by the agent
+    description: Git author name for commits created by the agent. When unset, derived from the GitHub App's name via GET /app.
   author_email:
     type: str
-    default: "hermes-agent[bot]@users.noreply.github.com"
-    description: Git author email for commits created by the agent
+    description: Git author email for commits created by the agent. When unset, derived as {id}+{slug}[bot]@users.noreply.github.com from GET /app.
   committer_name:
     type: str
-    default: "Hermes Agent"
-    description: Git committer name for commits created by the agent
+    description: Git committer name for commits created by the agent. When unset, derived from the GitHub App's name via GET /app.
   committer_email:
     type: str
-    default: "hermes-agent[bot]@users.noreply.github.com"
-    description: Git committer email for commits created by the agent
+    description: Git committer email for commits created by the agent. When unset, derived as {id}+{slug}[bot]@users.noreply.github.com from GET /app.
   domains:
     type: list
     default:

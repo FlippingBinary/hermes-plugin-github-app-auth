@@ -8,6 +8,8 @@ in terminal tool calls.
 
 - **`github_app_login`** — Authenticates as a GitHub App for a specific repo
 - **`github_app_logout`** — Revokes the installation access token
+- **`on_session_start` hook** — Fetches the GitHub App's identity for default
+  git identity (name and noreply email)
 - **`pre_llm_call` hook** — Injects GitHub App auth status into the agent's context
 - **`tool_request` middleware** — Prefixes every `terminal` tool call with
   environment variables overriding Github credentials and git config
@@ -81,13 +83,40 @@ hermes plugins enable github-app-auth
 
 Configurable settings under `plugins.entries.github-app-auth.settings`:
 
-| Setting           | Type | Default                                      | Description                                                |
-| ----------------- | ---- | -------------------------------------------- | ---------------------------------------------------------- |
-| `author_name`     | str  | `Hermes Agent`                               | Git author name                                            |
-| `author_email`    | str  | `hermes-agent[bot]@users.noreply.github.com` | Git author email                                           |
-| `committer_name`  | str  | `Hermes Agent`                               | Git committer name                                         |
-| `committer_email` | str  | `hermes-agent[bot]@users.noreply.github.com` | Git committer email                                        |
-| `domains`         | list | `["github.com"]`                             | GitHub domains for SSH-to-HTTPS rewriting and token auth. |
+| Setting           | Type | Default          | Description                                                                              |
+| ----------------- | ---- | ---------------- | ---------------------------------------------------------------------------------------- |
+| `author_name`     | str  | _auto_           | Git author name. When unset, derived from the GitHub App's `name` via `GET /app`.        |
+| `author_email`    | str  | _auto_           | Git author email. When unset, derived as `{id}+{slug}[bot]@users.noreply.github.com`.    |
+| `committer_name`  | str  | _auto_           | Git committer name. When unset, derived from the GitHub App's `name` via `GET /app`.     |
+| `committer_email` | str  | _auto_           | Git committer email. When unset, derived as `{id}+{slug}[bot]@users.noreply.github.com`. |
+| `domains`         | list | `["github.com"]` | GitHub domains for SSH-to-HTTPS rewriting and token auth.                                |
+
+### Auto-detected git identity
+
+When any of the four identity settings (`author_name`, `author_email`, `committer_name`,
+`committer_email`) is unset, the plugin fetches the GitHub App's `id`, `slug`,
+and `name` from the `GET /app` API endpoint at session start (or on the first
+`github_app_login` call if the session-start fetch failed). The noreply email
+is constructed in the rename-safe ID-prefixed format:
+`{id}+{slug}[bot]@users.noreply.github.com`. Each setting is independent — you
+can override any subset and leave the rest auto-detected.
+
+If all four settings are explicitly configured, no `/app` API call is made.
+
+### Failure handling
+
+If the GitHub App identity can't be obtained (network error or authentication
+error), the plugin leaves the git identity environment variables empty (so `git`
+will error if the agent attempts to commit) and injects a one-time message into
+the agent's context on the first turn. The agent is instructed to announce the
+failure to the user before taking any other action:
+
+- **Network error** — suggests checking network connectivity to `api.github.com`
+- **Authentication error** — suggests checking the plugin's configuration
+  (`GITHUB_APP_CLIENT_ID` and `GITHUB_APP_PRIVATE_KEY` environment variables)
+
+The fetch is retried as part of `github_app_login`, so the correct identity
+is used once login succeeds.
 
 ## Usage
 
@@ -126,7 +155,7 @@ If no session is active, returns:
 { "status": "already_logged_out" }
 ```
 
-### Using terminal tools after login
+### Using terminal tools
 
 After calling `github_app_login`, all `terminal` tool calls are automatically
 prefixed with environment variables that configure both `gh` and `git`:
@@ -134,10 +163,10 @@ prefixed with environment variables that configure both `gh` and `git`:
 ```bash
 export GH_TOKEN='ghs_xxxx' \
   GIT_CONFIG_GLOBAL=/dev/null \
-  GIT_AUTHOR_NAME='Hermes Agent' \
-  GIT_AUTHOR_EMAIL='hermes-agent[bot]@users.noreply.github.com' \
-  GIT_COMMITTER_NAME='Hermes Agent' \
-  GIT_COMMITTER_EMAIL='hermes-agent[bot]@users.noreply.github.com' \
+  GIT_AUTHOR_NAME='My GitHub App' \
+  GIT_AUTHOR_EMAIL='12345+my-app[bot]@users.noreply.github.com' \
+  GIT_COMMITTER_NAME='My GitHub App' \
+  GIT_COMMITTER_EMAIL='12345+my-app[bot]@users.noreply.github.com' \
   GIT_CONFIG_COUNT=3 \
   GIT_CONFIG_KEY_0='url.https://github.com/.insteadOf' \
   GIT_CONFIG_VALUE_0='git@github.com:' \
@@ -148,9 +177,13 @@ export GH_TOKEN='ghs_xxxx' \
   <original command>
 ```
 
-When unauthenticated or the token has expired, `GH_TOKEN` and the
-`extraHeader` token are set to `invalid` so git gets a 401 instead of falling
-back to stored credentials.
+The `GIT_AUTHOR_*` and `GIT_COMMITTER_*` values shown above are derived from the
+GitHub App's `/app` endpoint by default. If the fetch fails, the environment variables
+are left empty so `git` will error rather than commit with an incorrect identity.
+
+When unauthenticated or the token has expired, `GH_TOKEN` and the `extraHeader`
+token are set to `invalid` so git gets a 401 instead of falling back to stored
+credentials.
 
 For GitHub Enterprise, add your domain to `domains`:
 
@@ -163,6 +196,11 @@ plugins:
           - github.com
           - github.enterprise.example.com
 ```
+
+The `domains` list is used to generate the `GIT_CONFIG_*` values that tell `git`
+to use https with the GitHub App's IAT. The authorization header is injected in
+only git operations involving those domains so that it does not accidentally get
+used for git operations on GitLab or somewhere else.
 
 ## License
 
