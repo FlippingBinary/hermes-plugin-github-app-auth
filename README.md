@@ -10,34 +10,42 @@ in terminal tool calls.
 - **`github_app_logout`** — Revokes the installation access token
 - **`pre_llm_call` hook** — Injects GitHub App auth status into the agent's context
 - **`tool_request` middleware** — Prefixes every `terminal` tool call with
-  environment variables overriding `git` config and `gh` credentials
+  environment variables overriding Github credentials and git config
 
 ## Security
 
-This plugin reduces the risk of the agent accidentally using the human user's
-GitHub credentials on shared workstations by taking certain precautions:
+LLM-based agents are inherently unpredictable. Many of them, if not most, are
+not trustworthy with secrets. The same agent might publish a private key in a
+public web app for convenience during one session and flag the very same thing
+as a major concern during the next. In the meantime, you might not notice your
+GitHub bill skyrocketing or a repo of yours suddenly hosting malware.
 
-- The private key and client ID of the Github App are read from environment variables,
-  not from disk
-- Installation access tokens (IATs) are short-lived (60 minutes) and only injected
-  into the environment, not written to disk or config files
-- Git identity env vars (`GIT_AUTHOR_*`, `GIT_COMMITTER_*`) override any on-disk
-  git config, avoiding improper attribution
-- SSH GitHub remote URLs are rewritten to HTTPS via `url.insteadOf` so SSH keys
-  are not used for GitHub operations
-- When unauthenticated, the IAT is set to `invalid` so git gets a 401 instead
-  of falling back to cached/stored credentials
+To reduce the risk of damage from agents accidentally leaking secrets, this plugin
+makes every effort to reduce their access to the GitHub App's private key. The key
+is read from an environment variable, so it never has to exist on disk. The only
+token the agent must have access to is the installation access token (IAT) that
+this plugin creates, which has a 60 minute expiration from the time it is created.
+Even so, these measures do not eliminate all the risks of leaking the private
+key - they simply make it easier to limit those risks. For tighter security, run
+Hermes Agent in a containerized environment that doesn't have the private key
+on disk. As long as the GitHub App's private key is only made available to Hermes
+Agent as an environment variable, Hermes Agent doesn't automatically pass the
+key along to commands the agent may run. This effectively prevents the agent from
+accidentally exfiltrating the private key in LLM requests or terminal commands,
+because the agent can't even view it. The short-lived IAT is accessible to the
+agent, but the 60 minute expiration makes it difficult for an accidentally leaked
+IAT to be used by a third-party.
 
-Those precautions do NOT eliminate all risks of leaking the Github App's private
-key to the agent, but it makes it easier to limit those risks. For tighter security,
-the user should run Hermes Agent in a containerized environment that doesn't have
-the private key on disk. As long as the Github App's private key is only made
-available to the Hermes Agent as an environment variable, Hermes Agent doesn't
-automatically pass it along to commands the agent may run. This effectively prevents
-the agent from accidentally exfiltrating it in LLM requests or terminal commands
-because it can't even view it. The short-lived IAT is accessible to it, but the
-60 minute expiration makes it difficult for an accidentally leaked IAT to be used
-by a third-party.
+This plugin also reduces the risk of the agent accidentally using a human user's
+GitHub credentials or git identity on shared workstations by taking certain other
+precautions:
+
+- The user's git config is disabled, preventing the accidental use of any stored
+  credentials or identity it may contain
+- SSH GitHub remote URLs are rewritten to HTTPS so SSH keys are not accidentally
+  used for GitHub operations
+- When unauthenticated, an invalid credential is injected so git gets a 401
+  instead of falling back to cached/stored credentials
 
 ## Requirements
 
@@ -112,6 +120,12 @@ Response:
 { "status": "logged_out", "revoked": true }
 ```
 
+If no session is active, returns:
+
+```json
+{ "status": "already_logged_out" }
+```
+
 ### Using terminal tools after login
 
 After calling `github_app_login`, all `terminal` tool calls are automatically
@@ -119,6 +133,7 @@ prefixed with environment variables that configure both `gh` and `git`:
 
 ```bash
 export GH_TOKEN='ghs_xxxx' \
+  GIT_CONFIG_GLOBAL=/dev/null \
   GIT_AUTHOR_NAME='Hermes Agent' \
   GIT_AUTHOR_EMAIL='hermes-agent[bot]@users.noreply.github.com' \
   GIT_COMMITTER_NAME='Hermes Agent' \
