@@ -1,0 +1,38 @@
+manifest_version: 2
+name: github-app-auth
+version: 0.1.0
+description: >
+  GitHub App authentication for Hermes Agent. Provides tools to authenticate
+  as a GitHub App installation and automatically scopes gh/git CLI credentials
+  in terminal tool calls.
+author: Jon Musselwhite
+license: MIT
+provides_tools:
+  - github_app_login
+  - github_app_logout
+provides_hooks:
+  - pre_llm_call
+  - pre_tool_call
+requires_env:
+  - name: GITHUB_APP_CLIENT_ID
+    description: The GitHub App's client ID (used as JWT issuer)
+  - name: GITHUB_APP_PRIVATE_KEY
+    description: PEM-format private key for signing GitHub App JWTs
+    secret: true
+python_dependencies:
+  - PyJWT>=2.8,<3
+  - cryptography>=41.0
+  - httpx>=0.24,<1
+config_schema:
+  git_author_name:
+    type: str
+    default: "Hermes Agent"
+  git_author_email:
+    type: str
+    default: "hermes-agent[bot]@users.noreply.github.com"
+  git_committer_name:
+    type: str
+    default: "Hermes Agent"
+  git_committer_email:
+    type: str
+    default: "hermes-agent[bot]@users.noreply.github.com"
