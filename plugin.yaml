@@ -25,16 +25,21 @@ config_schema:
   author_name:
     type: str
     default: "Hermes Agent"
+    description: Git author name for commits created by the agent
   author_email:
     type: str
     default: "hermes-agent[bot]@users.noreply.github.com"
+    description: Git author email for commits created by the agent
   committer_name:
     type: str
     default: "Hermes Agent"
+    description: Git committer name for commits created by the agent
   committer_email:
     type: str
     default: "hermes-agent[bot]@users.noreply.github.com"
+    description: Git committer email for commits created by the agent
   domains:
     type: list
     default:
       - "github.com"
+    description: GitHub domains for SSH-to-HTTPS rewriting and bearer token injection
