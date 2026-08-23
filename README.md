@@ -9,8 +9,8 @@ in terminal tool calls.
 - **`github_app_login`** — Authenticates as a GitHub App for a specific repo
 - **`github_app_logout`** — Revokes the installation access token
 - **`pre_llm_call` hook** — Injects GitHub App auth status into the agent's context
-- **`pre_tool_call` hook** — Prefixes every `terminal` tool call with environment
-  variables overriding `git` config and `gh` credentials
+- **`tool_request` middleware** — Prefixes every `terminal` tool call with
+  environment variables overriding `git` config and `gh` credentials
 
 ## Security
 

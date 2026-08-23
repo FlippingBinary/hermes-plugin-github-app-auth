@@ -12,7 +12,6 @@ provides_tools:
   - github_app_logout
 provides_hooks:
   - pre_llm_call
-  - pre_tool_call
 requires_env:
   - name: GITHUB_APP_CLIENT_ID
     description: The GitHub App's client ID (used as JWT issuer)
