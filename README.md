@@ -87,7 +87,7 @@ Configurable settings under `plugins.entries.github-app-auth.settings`:
 | `author_email`    | str  | `hermes-agent[bot]@users.noreply.github.com` | Git author email                                           |
 | `committer_name`  | str  | `Hermes Agent`                               | Git committer name                                         |
 | `committer_email` | str  | `hermes-agent[bot]@users.noreply.github.com` | Git committer email                                        |
-| `domains`         | list | `["github.com"]`                             | GitHub domains for SSH-to-HTTPS rewriting and bearer auth. |
+| `domains`         | list | `["github.com"]`                             | GitHub domains for SSH-to-HTTPS rewriting and token auth. |
 
 ## Usage
 
@@ -144,13 +144,13 @@ export GH_TOKEN='ghs_xxxx' \
   GIT_CONFIG_KEY_1='url.https://github.com/.insteadOf' \
   GIT_CONFIG_VALUE_1='ssh://git@github.com/' \
   GIT_CONFIG_KEY_2='http.https://github.com/.extraHeader' \
-  GIT_CONFIG_VALUE_2='Authorization: Bearer ghs_xxxx'; \
+  GIT_CONFIG_VALUE_2='Authorization: Basic eC1hY2xxx='; \
   <original command>
 ```
 
-When unauthenticated or the token has expired, `GH_TOKEN` and the `extraHeader`
-token are set to `invalid` so git gets a 401 instead of falling back to stored
-credentials.
+When unauthenticated or the token has expired, `GH_TOKEN` and the
+`extraHeader` token are set to `invalid` so git gets a 401 instead of falling
+back to stored credentials.
 
 For GitHub Enterprise, add your domain to `domains`:
 

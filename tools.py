@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import shlex
@@ -177,6 +178,8 @@ def _terminal_env_middleware(
     )
     github_domains = _ctx.get_config("domains", ["github.com"])
 
+    basic_auth = base64.b64encode(f"x-access-token:{gh_token}".encode()).decode()
+
     config_pairs: list[tuple[str, str]] = []
     for domain in github_domains:
         config_pairs.append((f"url.https://{domain}/.insteadOf", f"git@{domain}:"))
@@ -186,7 +189,7 @@ def _terminal_env_middleware(
         config_pairs.append(
             (
                 f"http.https://{domain}/.extraHeader",
-                f"Authorization: Bearer {gh_token}",
+                f"Authorization: Basic {basic_auth}",
             )
         )
 
