@@ -25,14 +25,14 @@ def register(ctx: tools.PluginContext) -> None:
 
     ctx.register_tool(
         "github_app_login",
-        "github-app",
+        "github-app-auth",
         LOGIN_SCHEMA,
         tools._github_app_login_handler,
     )
 
     ctx.register_tool(
         "github_app_logout",
-        "github-app",
+        "github-app-auth",
         LOGOUT_SCHEMA,
         tools._github_app_logout_handler,
     )
