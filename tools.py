@@ -39,6 +39,15 @@ class PluginContext(Protocol):
         callback: Callable[..., Any],
     ) -> None: ...
 
+    def register_system_prompt_section(
+        self,
+        section_id: str,
+        content: str | Callable[..., str],
+        *,
+        position: str = "after_memory",
+        max_chars: int = 4000,
+    ) -> None: ...
+
     @overload
     def get_config(self, key: str) -> Any: ...
 
@@ -51,6 +60,19 @@ class PluginContext(Protocol):
 _auth_state = AuthState()
 _auth: GitHubAppAuth | None = None
 _ctx: PluginContext | None = None
+
+STATIC_GUIDANCE_TEXT = (
+    "[GitHub App Auth] The github_app_login tool authenticates as a GitHub App "
+    "installation for a specific repository (pass owner/repo). Call it before "
+    "performing git clone/push/pull or gh CLI operations on a GitHub repo to "
+    "scope credentials to the App. If GitHub authentication fails, use "
+    "github_app_login — do not prompt the user for credentials or search for "
+    "stored tokens or SSH keys. If github_app_login fails and you're sure the"
+    "name of the repo is correct, report the failure to the user and ask them"
+    "to confirm if the Github App is installed in the repo with the required"
+    "permissions. Use github_app_logout when GitHub operations are complete to"
+    "revoke the short-lived token."
+)
 
 
 def _json_result(data: dict[str, Any]) -> str:
@@ -120,28 +142,25 @@ def _pre_llm_call_hook(
     user_message: str,
     conversation_history: list[dict[str, Any]],
     **kwargs: Any,
-) -> dict[str, str]:
+) -> dict[str, str] | None:
+    if not _auth_state.is_authenticated:
+        return None
+    if not _auth_state.is_token_expired():
+        return None
+
     status = _auth_state.get_status()
-    if status is None:
-        message = (
-            "[GitHub App] Not authenticated. Use github_app_login with a repo "
-            "(owner/repo) to authenticate for GitHub operations."
+    iat = _auth_state.get_iat()
+    if iat is not None and _auth is not None:
+        _auth.revoke_iat(iat)
+    _auth_state.clear()
+
+    repo = status["repo"] if status is not None else "the repository"
+    return {
+        "context": (
+            f"[GitHub App] Token for {repo} has expired and been revoked. "
+            "Use github_app_login again to re-authenticate, if necessary."
         )
-    else:
-        expired = _auth_state.is_token_expired()
-        if expired:
-            message = (
-                f"[GitHub App] Token for {status['repo']} has expired. "
-                "Use github_app_login again to refresh."
-            )
-        else:
-            message = (
-                f"[GitHub App] Authenticated for {status['repo']} "
-                f"(installation #{status['installation_id']}). "
-                f"Token expires at {status['expires_at']}. "
-                "Use github_app_logout when done."
-            )
-    return {"context": message}
+    }
 
 
 def _terminal_env_middleware(

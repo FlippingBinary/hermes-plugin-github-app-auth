@@ -37,5 +37,10 @@ def register(ctx: tools.PluginContext) -> None:
         tools._github_app_logout_handler,
     )
 
+    ctx.register_system_prompt_section(
+        "github-app-auth-guidance",
+        tools.STATIC_GUIDANCE_TEXT,
+        position="after_memory",
+    )
     ctx.register_hook("pre_llm_call", tools._pre_llm_call_hook)
     ctx.register_middleware("tool_request", tools._terminal_env_middleware)
