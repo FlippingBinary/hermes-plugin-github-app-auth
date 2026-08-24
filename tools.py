@@ -127,18 +127,34 @@ _auth: GitHubAppAuth | None = None
 _ctx: PluginContext | None = None
 _github_host: str = "github.com"
 
-STATIC_GUIDANCE_TEXT = (
-    "[GitHub App Auth] The github_app_login tool authenticates as a GitHub App "
-    "installation for a specific repository (pass owner/repo). Call it before "
-    "performing git clone/push/pull or gh CLI operations on a GitHub repo to "
-    "scope credentials to the App. If GitHub authentication fails, use "
-    "github_app_login — do not prompt the user for credentials or search for "
-    "stored tokens or SSH keys. If github_app_login fails and you're sure the"
-    "name of the repo is correct, report the failure to the user and ask them"
-    "to confirm if the Github App is installed in the repo with the required"
-    "permissions. Use github_app_logout when GitHub operations are complete to"
-    "revoke the short-lived token."
-)
+
+def _build_guidance_text(session_info: Any = None, **kwargs: Any) -> str:
+    return (
+        "[GitHub App Auth] Before reading or writing any repo that is hosted on "
+        f"{_github_host}, you MUST login to the repo as a GitHub App using the "
+        "github_app_login tool. This tool will configure your terminal so that "
+        "all `git` and `gh` commands for that repo are authenticated and configured "
+        "correctly. The plugin handles credentials transparently. Do not run `gh "
+        "auth ...`, `git config ...`, or similar commands; they are unnecessary "
+        "and may corrupt configuration files, negatively affecting other users. "
+        "For repos hosted on any other host, github_app_login does not apply. "
+        "Public reads may succeed without authentication, but private repos and "
+        "write operations will not be accessible. If you need access to a private "
+        "repo on another host, notify the user. Do NOT attempt any other method "
+        f"of logging in or accessing any repo on {_github_host} other than the "
+        "github_app_login tool. If you have already logged in to the repo successfully "
+        "with the github_app_login tool, but a `git` or `gh` command fails with "
+        "an authentication error anyway, that means your access to the repo for "
+        "that type of operation is intentionally limited or your access token "
+        "expired and you'll need to call github_app_login again (it expires an "
+        "hour after you last called the tool). If your limited access is a blocking "
+        "issue, you MUST notify the user so they can choose whether to grant additional "
+        "access or not. If you accidentally leak a credential or are simply finished "
+        "with your `git`/`gh` operations for the time-being, you can logout by "
+        "using the github_app_logout tool to revoke your transparent credential's "
+        "access to the repo. That limits the damage that could be caused if someone "
+        "else intercepted it and tries to use it."
+    )
 
 
 def _json_result(data: dict[str, Any]) -> str:
@@ -313,22 +329,20 @@ def _pre_llm_call_hook(
                 contexts.append(
                     "[GitHub App Auth] A network error occurred while setting "
                     f"up the github-app-auth toolgroup: {error} Please announce "
-                    "this failure to the user now, before taking any other "
-                    "action. Suggest that the user check network connectivity "
-                    f"to {_github_host}. Do not attempt to fix this yourself. "
-                    "Do not create git commits until you have successfully "
-                    "called github_app_login."
+                    "this failure to the user now, before taking any other action. "
+                    f"Suggest that the user check network connectivity to {_github_host}. "
+                    "Do not attempt to fix this yourself. Do not create git commits "
+                    "until you have successfully called github_app_login."
                 )
             elif outcome is _FetchOutcome.AUTH:
                 contexts.append(
                     "[GitHub App Auth] An authentication error occurred while "
                     f"setting up the github-app-auth toolgroup: {error} Please "
                     "announce this failure to the user now, before taking any "
-                    "other action. Suggest that the user check the "
-                    "github-app-auth plugin's configuration and environment "
-                    "variables. Do not attempt to fix this yourself. Do not "
-                    "create git commits until you have successfully called "
-                    "github_app_login."
+                    "other action. Suggest that the user check the github-app-auth "
+                    "plugin's configuration and environment variables. Do not "
+                    "attempt to fix this yourself. Do not create git commits until "
+                    "you have successfully called github_app_login."
                 )
 
     if _auth_state.is_authenticated and _auth_state.is_token_expired():
@@ -340,8 +354,9 @@ def _pre_llm_call_hook(
 
         repo = status["repo"] if status is not None else "the repository"
         contexts.append(
-            f"[GitHub App] Token for {repo} has expired and been revoked. "
-            "Use github_app_login again to re-authenticate, if necessary."
+            f"[GitHub App Auth] Token for {repo} has expired. Use github_app_login "
+            "again to re-authenticate before attempting any `git` or `gh` operations "
+            f"on its {_github_host} remote."
         )
 
     if contexts:
