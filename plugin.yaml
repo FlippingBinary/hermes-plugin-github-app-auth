@@ -27,10 +27,10 @@ config_schema:
     description: Git author name for commits created by the agent. When unset, derived from the GitHub App's name via GET /app.
   author_email:
     type: str
-    description: Git author email for commits created by the agent. When unset, derived as {id}+{slug}[bot]@users.noreply.github.com from GET /app.
+    description: Git author email for commits created by the agent. When unset, derived as {bot_user_id}+{slug}[bot]@users.noreply.github.com from GET /app and GET /users/{slug}[bot].
   committer_name:
     type: str
     description: Git committer name for commits created by the agent. When unset, derived from the GitHub App's name via GET /app.
   committer_email:
     type: str
-    description: Git committer email for commits created by the agent. When unset, derived as {id}+{slug}[bot]@users.noreply.github.com from GET /app.
+    description: Git committer email for commits created by the agent. When unset, derived as {bot_user_id}+{slug}[bot]@users.noreply.github.com from GET /app and GET /users/{slug}[bot].

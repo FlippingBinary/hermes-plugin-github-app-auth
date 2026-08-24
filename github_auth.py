@@ -28,6 +28,7 @@ class AppIdentity(TypedDict):
     id: int
     slug: str
     name: str
+    bot_user_id: int
 
 
 class AuthState:
@@ -162,12 +163,26 @@ class GitHubAppAuth:
         )
 
     def _get_app(self, base: str) -> AppIdentity:
+        headers = self._jwt_headers()
         url = f"{base}/app"
         with httpx.Client(timeout=30) as client:
-            resp = client.get(url, headers=self._jwt_headers())
+            resp = client.get(url, headers=headers)
             resp.raise_for_status()
             data = resp.json()
-            return AppIdentity(id=data["id"], slug=data["slug"], name=data["name"])
+            slug = data["slug"]
+            bot_headers = {
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
+            }
+            bot_resp = client.get(f"{base}/users/{slug}[bot]", headers=bot_headers)
+            bot_resp.raise_for_status()
+            bot_data = bot_resp.json()
+            return AppIdentity(
+                id=data["id"],
+                slug=slug,
+                name=data["name"],
+                bot_user_id=bot_data["id"],
+            )
 
     def get_app(self) -> AppIdentity:
         return self._try_with_candidates(self._get_app)

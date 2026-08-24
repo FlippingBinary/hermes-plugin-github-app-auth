@@ -87,29 +87,28 @@ Configurable settings under `plugins.entries.github-app-auth.settings`:
 | Setting           | Type | Default | Description                                                                              |
 | ----------------- | ---- | ------- | ---------------------------------------------------------------------------------------- |
 | `author_name`     | str  | _auto_  | Git author name. When unset, derived from the GitHub App's `name` via `GET /app`.        |
-| `author_email`    | str  | _auto_  | Git author email. When unset, derived as `{id}+{slug}[bot]@users.noreply.github.com`.    |
+| `author_email`    | str  | _auto_  | Git author email. When unset, derived as `{bot_user_id}+{slug}[bot]@users.noreply.github.com`.    |
 | `committer_name`  | str  | _auto_  | Git committer name. When unset, derived from the GitHub App's `name` via `GET /app`.     |
-| `committer_email` | str  | _auto_  | Git committer email. When unset, derived as `{id}+{slug}[bot]@users.noreply.github.com`. |
+| `committer_email` | str  | _auto_  | Git committer email. When unset, derived as `{bot_user_id}+{slug}[bot]@users.noreply.github.com`. |
 
 ### Auto-detected git identity
 
 When any of the four identity settings (`author_name`, `author_email`, `committer_name`,
-`committer_email`) is unset, the plugin fetches the GitHub App's `id`, `slug`,
-and `name` from the `GET /app` API endpoint at session start (or on the first
-`github_app_login` call if the session-start fetch failed). The noreply email
-is constructed in the rename-safe ID-prefixed format:
-`{id}+{slug}[bot]@users.noreply.github.com`. Each setting is independent — you
-can override any subset and leave the rest auto-detected.
+`committer_email`) are unset, the plugin fetches the GitHub App's slug, name,
+and bot user ID from the GitHub API. The `author_name` and `committer_name` are
+set to the GitHub App's name, and the email address is constructed from the slug
+and bot user's ID as `{bot_user_id}+{slug}[bot]@users.noreply.github.com`. Each
+setting is independent — you can override any subset and leave the rest auto-detected.
 
-If all four settings are explicitly configured, no `/app` API call is made.
+If all four settings are explicitly configured, no API calls are made.
 
-### Failure handling
+#### Failure handling
 
 If the GitHub App identity can't be obtained (network error or authentication
-error), the plugin leaves the git identity environment variables empty (so `git`
-will error if the agent attempts to commit) and injects a one-time message into
-the agent's context on the first turn. The agent is instructed to announce the
-failure to the user before taking any other action:
+error), the plugin forces the git identity environment variables to be empty (so
+`git` will error if the agent attempts to commit) and injects a one-time message
+into the agent's context on the first turn. The agent is instructed to announce
+the failure to the user before taking any other action:
 
 - **Network error** — suggests checking network connectivity to the configured host
 - **Authentication error** — suggests checking the plugin's configuration
@@ -164,9 +163,9 @@ prefixed with environment variables that configure both `gh` and `git`:
 export GH_TOKEN='ghs_xxxx' \
   GIT_CONFIG_GLOBAL=/dev/null \
   GIT_AUTHOR_NAME='My GitHub App' \
-  GIT_AUTHOR_EMAIL='12345+my-app[bot]@users.noreply.github.com' \
+  GIT_AUTHOR_EMAIL='67890+my-app[bot]@users.noreply.github.com' \
   GIT_COMMITTER_NAME='My GitHub App' \
-  GIT_COMMITTER_EMAIL='12345+my-app[bot]@users.noreply.github.com' \
+  GIT_COMMITTER_EMAIL='67890+my-app[bot]@users.noreply.github.com' \
   GIT_CONFIG_COUNT=3 \
   GIT_CONFIG_KEY_0='url.https://github.com/.insteadOf' \
   GIT_CONFIG_VALUE_0='git@github.com:' \

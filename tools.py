@@ -162,7 +162,7 @@ def _json_result(data: dict[str, Any]) -> str:
 
 
 def _build_noreply_email(app: AppIdentity) -> str:
-    return f"{app['id']}+{app['slug']}[bot]@users.noreply.github.com"
+    return f"{app['bot_user_id']}+{app['slug']}[bot]@users.noreply.github.com"
 
 
 def _should_fetch_identity(ctx: PluginContext) -> bool:
