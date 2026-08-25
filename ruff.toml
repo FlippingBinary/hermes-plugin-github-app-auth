@@ -1,0 +1,31 @@
+target-version = "py311"
+line-length = 88
+
+[lint]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "W",      # pycodestyle warnings
+    "I",      # isort
+    "N",      # pep8-naming
+    "B",      # flake8-bugbear (incl. BLE001 blind-except)
+    "UP",     # pyupgrade
+    "S",      # flake8-bandit
+    "SIM",    # flake8-simplify
+    "C4",     # flake8-comprehensions
+    "PIE",    # flake8-pie
+    "RET",    # flake8-return
+    "PL",     # pylint (PLR, PLW)
+    "ERA",    # eradicate
+    "FBT",    # flake8-boolean-trap
+    "A",      # flake8-builtins
+    "TC",     # flake8-type-checking
+    "PERF",   # perflint
+    "RUF",    # ruff-specific
+]
+
+[lint.per-file-ignores]
+# Plugin directory uses hyphens in its filesystem name; not an importable package.
+"__init__.py" = ["N999"]
+# Hermes PluginContext Protocol signature mandates 6 parameters.
+"tools.py" = ["PLR0913"]

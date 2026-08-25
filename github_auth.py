@@ -3,13 +3,16 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections.abc import Callable
-from datetime import datetime, timezone
-from typing import TypedDict, TypeVar
+from datetime import UTC, datetime
+from http import HTTPStatus
+from typing import TYPE_CHECKING, TypedDict, TypeVar
 from urllib.parse import urlparse
 
 import httpx
 import jwt
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 GITHUB_API_VERSION = "2022-11-28"
 
@@ -54,7 +57,7 @@ class AuthState:
                 expires_dt = datetime.fromisoformat(
                     self._expires_at.replace("Z", "+00:00")
                 )
-                return datetime.now(timezone.utc) >= expires_dt
+                return datetime.now(UTC) >= expires_dt
             except (ValueError, AttributeError):
                 return True
 
@@ -96,7 +99,10 @@ class AuthState:
 
 
 class GitHubAppAuth:
-    """GitHub App authentication flow: JWT generation, installation lookup, IAT creation/revocation."""
+    """GitHub App authentication flow.
+
+    JWT generation, installation lookup, IAT creation/revocation.
+    """
 
     def __init__(self, client_id: str, private_key_pem: str, host: str | None) -> None:
         self._client_id = client_id
@@ -127,8 +133,7 @@ class GitHubAppAuth:
     def _api_candidates(self) -> list[str]:
         if self._api_base is not None:
             return [self._api_base]
-        candidates = [f"https://api.{self._host}", f"https://{self._host}/api/v3"]
-        return candidates
+        return [f"https://api.{self._host}", f"https://{self._host}/api/v3"]
 
     def _try_with_candidates(self, api_call: Callable[[str], T]) -> T:
         candidates = self._api_candidates()
@@ -145,13 +150,11 @@ class GitHubAppAuth:
                 return result
             except httpx.HTTPStatusError as e:
                 status = e.response.status_code if e.response is not None else None
-                if status == 404:
+                if status == HTTPStatus.NOT_FOUND:
                     continue
-                auth_error = RuntimeError(
-                    f"GitHub API at {base} returned HTTP {status}."
-                )
+                auth_error = e
             except (httpx.TransportError, httpx.RequestError) as e:
-                network_error = RuntimeError(f"Network error contacting {base}: {e}")
+                network_error = e
 
         if network_error is not None:
             raise network_error
@@ -225,8 +228,8 @@ class GitHubAppAuth:
         try:
             with httpx.Client(timeout=30) as client:
                 resp = client.delete(url, headers=headers)
-                return resp.status_code == 204
-        except Exception as e:
+                return resp.status_code == HTTPStatus.NO_CONTENT
+        except httpx.HTTPError as e:
             logger.warning("Failed to revoke installation token: %s", e)
             return False
 

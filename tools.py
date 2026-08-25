@@ -6,12 +6,15 @@ import json
 import logging
 import shlex
 import threading
-from collections.abc import Callable
-from typing import Any, Protocol, overload
+from typing import TYPE_CHECKING, Any, Protocol, overload
 
 import httpx
+import jwt
 
 from .github_auth import AppIdentity, AuthState, GitHubAppAuth
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +58,10 @@ class AppIdentityCache:
             if not self._pending_injection:
                 return None
             self._pending_injection = False
-            assert self._outcome is not None
-            assert self._error is not None
+            if self._outcome is None or self._error is None:
+                raise RuntimeError(
+                    "consume_pending_injection called with no pending failure state"
+                )
             return self._outcome, self._error
 
     def get(self) -> AppIdentity | None:
@@ -148,12 +153,12 @@ def _build_guidance_text(session_info: Any = None, **kwargs: Any) -> str:
         "that type of operation is intentionally limited or your access token "
         "expired and you'll need to call github_app_login again (it expires an "
         "hour after you last called the tool). If your limited access is a blocking "
-        "issue, you MUST notify the user so they can choose whether to grant additional "
-        "access or not. If you accidentally leak a credential or are simply finished "
-        "with your `git`/`gh` operations for the time-being, you can logout by "
-        "using the github_app_logout tool to revoke your transparent credential's "
-        "access to the repo. That limits the damage that could be caused if someone "
-        "else intercepted it and tries to use it."
+        "issue, you MUST notify the user so they can choose whether to grant "
+        "additional access or not. If you accidentally leak a credential or are "
+        "simply finished with your `git`/`gh` operations for the time-being, you "
+        "can logout by using the github_app_logout tool to revoke your transparent "
+        "credential's access to the repo. That limits the damage that could be "
+        "caused if someone else intercepted it and tries to use it."
     )
 
 
@@ -227,7 +232,7 @@ def _attempt_identity_fetch() -> None:
             _FetchOutcome.NETWORK,
             f"Request error while fetching App identity: {e}",
         )
-    except Exception as e:
+    except (jwt.PyJWTError, KeyError, RuntimeError) as e:
         _app_identity_cache.set_failure(
             _FetchOutcome.AUTH,
             f"Unexpected error while fetching App identity: {e}",
@@ -273,7 +278,7 @@ def _github_app_login_handler(args: ToolArgs, **kwargs: Any) -> str:
                 "expires_at": expires_at,
             }
         )
-    except Exception as e:
+    except (httpx.HTTPError, jwt.PyJWTError, KeyError, RuntimeError) as e:
         logger.exception("github_app_login failed")
         return _json_result({"status": "error", "message": str(e)})
 
@@ -289,7 +294,7 @@ def _github_app_logout_handler(args: ToolArgs, **kwargs: Any) -> str:
             revoked = _auth.revoke_iat(iat)
         _auth_state.clear()
         return _json_result({"status": "logged_out", "revoked": revoked})
-    except Exception as e:
+    except (httpx.HTTPError, RuntimeError) as e:
         logger.exception("github_app_logout failed")
         return _json_result({"status": "error", "message": str(e)})
 
@@ -310,6 +315,7 @@ def _on_session_start_hook(
 
 
 def _pre_llm_call_hook(
+    *,
     session_id: str,
     user_message: str,
     conversation_history: list[dict[str, Any]],
@@ -319,9 +325,12 @@ def _pre_llm_call_hook(
     contexts: list[str] = []
 
     if is_first_turn:
-        if not _app_identity_cache.was_attempted:
-            if _ctx is not None and _should_fetch_identity(_ctx):
-                _attempt_identity_fetch()
+        if (
+            _ctx is not None
+            and not _app_identity_cache.was_attempted
+            and _should_fetch_identity(_ctx)
+        ):
+            _attempt_identity_fetch()
         pending = _app_identity_cache.consume_pending_injection()
         if pending is not None:
             outcome, error = pending
@@ -330,9 +339,10 @@ def _pre_llm_call_hook(
                     "[GitHub App Auth] A network error occurred while setting "
                     f"up the github-app-auth toolgroup: {error} Please announce "
                     "this failure to the user now, before taking any other action. "
-                    f"Suggest that the user check network connectivity to {_github_host}. "
-                    "Do not attempt to fix this yourself. Do not create git commits "
-                    "until you have successfully called github_app_login."
+                    "Suggest that the user check network connectivity to "
+                    f"{_github_host}. Do not attempt to fix this yourself. Do "
+                    "not create git commits until you have successfully called "
+                    "github_app_login."
                 )
             elif outcome is _FetchOutcome.AUTH:
                 contexts.append(
@@ -382,7 +392,7 @@ def _terminal_env_middleware(
     status = _auth_state.get_status()
     expired = _auth_state.is_token_expired()
 
-    gh_token = "invalid"
+    gh_token = ""
     if status is not None and not expired:
         iat = _auth_state.get_iat()
         if iat is not None:

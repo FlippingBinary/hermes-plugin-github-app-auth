@@ -13,7 +13,9 @@ LOGIN_SCHEMA: Final[dict[str, Any]] = {
         "properties": {
             "repo": {
                 "type": "string",
-                "description": "GitHub repo in owner/repo format (e.g. 'octocat/Hello-World')",
+                "description": (
+                    "GitHub repo in owner/repo format (e.g. 'octocat/Hello-World')"
+                ),
             }
         },
         "required": ["repo"],

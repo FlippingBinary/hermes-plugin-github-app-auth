@@ -46,7 +46,7 @@ precautions:
   credentials or identity it may contain
 - SSH GitHub remote URLs are rewritten to HTTPS so SSH keys are not accidentally
   used for GitHub operations
-- When unauthenticated, an invalid credential is injected so git gets a 401
+- When unauthenticated, an empty credential is injected so git gets a 401
   instead of falling back to cached/stored credentials
 
 ## Requirements
@@ -181,8 +181,8 @@ GitHub App's `/app` endpoint by default. If the fetch fails, the environment var
 are left empty so `git` will error rather than commit with an incorrect identity.
 
 When unauthenticated or the token has expired, `GH_TOKEN` and the `extraHeader`
-token are set to `invalid` so git gets a 401 instead of falling back to stored
-credentials.
+token are set to an empty string so git gets a 401 instead of falling back to
+stored credentials.
 
 For GitHub Enterprise, set the `GITHUB_APP_HOST` environment variable to your
 GHES hostname:
