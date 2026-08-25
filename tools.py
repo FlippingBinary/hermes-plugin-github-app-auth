@@ -252,13 +252,8 @@ def _github_app_login_handler(args: ToolArgs, **kwargs: Any) -> str:
             }
         )
 
-    repo = args.get("repo", "").strip()
-    if not repo or "/" not in repo:
-        return _json_result(
-            {"status": "error", "message": "repo must be in 'owner/repo' format"}
-        )
-    parts = repo.split("/", 1)
-    owner, repo_name = parts[0].strip(), parts[1].strip()
+    owner, _, repo_name = args.get("repo", "").partition("/")
+    owner, repo_name = owner.strip(), repo_name.strip()
     if not owner or not repo_name:
         return _json_result(
             {"status": "error", "message": "repo must be in 'owner/repo' format"}
