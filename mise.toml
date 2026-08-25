@@ -1,0 +1,19 @@
+[tools]
+python = "3.11"
+ruff = "latest"
+
+[tasks.lint]
+description = "Run ruff linter"
+run = "ruff check ."
+
+[tasks."lint:fix"]
+description = "Run ruff linter"
+run = "ruff check --fix ."
+
+[tasks.format]
+description = "Format Python files with ruff"
+run = "ruff format ."
+
+[tasks."format:check"]
+description = "Check the formatting Python files with ruff"
+run = "ruff format --check ."
