@@ -166,6 +166,10 @@ def _json_result(data: dict[str, Any]) -> str:
     return json.dumps(data)
 
 
+def _error_result(message: str) -> str:
+    return _json_result({"status": "error", "message": message})
+
+
 def _build_noreply_email(app: AppIdentity) -> str:
     return f"{app['bot_user_id']}+{app['slug']}[bot]@users.noreply.github.com"
 
@@ -241,23 +245,16 @@ def _attempt_identity_fetch() -> None:
 
 def _github_app_login_handler(args: ToolArgs, **kwargs: Any) -> str:
     if _auth is None:
-        return _json_result(
-            {
-                "status": "error",
-                "message": (
-                    "Plugin not configured: GITHUB_APP_CLIENT_ID and "
-                    "GITHUB_APP_PRIVATE_KEY environment variables must "
-                    "be set by the user."
-                ),
-            }
+        return _error_result(
+            "Plugin not configured: GITHUB_APP_CLIENT_ID and "
+            "GITHUB_APP_PRIVATE_KEY environment variables must "
+            "be set by the user."
         )
 
     owner, _, repo_name = args.get("repo", "").partition("/")
     owner, repo_name = owner.strip(), repo_name.strip()
     if not owner or not repo_name:
-        return _json_result(
-            {"status": "error", "message": "repo must be in 'owner/repo' format"}
-        )
+        return _error_result("repo must be in 'owner/repo' format")
 
     try:
         installation_id = _auth.get_installation_id(owner, repo_name)
@@ -275,7 +272,7 @@ def _github_app_login_handler(args: ToolArgs, **kwargs: Any) -> str:
         )
     except (httpx.HTTPError, jwt.PyJWTError, KeyError, RuntimeError) as e:
         logger.exception("github_app_login failed")
-        return _json_result({"status": "error", "message": str(e)})
+        return _error_result(str(e))
 
 
 def _github_app_logout_handler(args: ToolArgs, **kwargs: Any) -> str:
@@ -291,7 +288,7 @@ def _github_app_logout_handler(args: ToolArgs, **kwargs: Any) -> str:
         return _json_result({"status": "logged_out", "revoked": revoked})
     except (httpx.HTTPError, RuntimeError) as e:
         logger.exception("github_app_logout failed")
-        return _json_result({"status": "error", "message": str(e)})
+        return _error_result(str(e))
 
 
 def _on_session_start_hook(
