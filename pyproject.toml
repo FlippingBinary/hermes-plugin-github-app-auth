@@ -1,0 +1,39 @@
+[project]
+name = "github-app-auth"
+version = "0.1.0"
+description = "GitHub App authentication for Hermes Agent. Provides tools to authenticate as a GitHub App installation and automatically scopes gh/git CLI credentials in terminal tool calls."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Jon Musselwhite" }]
+requires-python = ">=3.11"
+dependencies = [
+    "PyJWT[crypto]>=2.8,<3",
+    "httpx>=0.24,<1",
+]
+keywords = [
+    "hermes",
+    "hermes-agent",
+    "plugin",
+    "github",
+    "github-app",
+    "authentication",
+    "git",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Systems Administration :: Authentication/Directory",
+]
+
+[project.urls]
+Homepage = "https://github.com/FlippingBinary/hermes-plugin-github-app-auth"
+Repository = "https://github.com/FlippingBinary/hermes-plugin-github-app-auth"
+Documentation = "https://hermes-agent.nousresearch.com/docs/developer-guide/plugins"
+Issues = "https://github.com/FlippingBinary/hermes-plugin-github-app-auth/issues"
