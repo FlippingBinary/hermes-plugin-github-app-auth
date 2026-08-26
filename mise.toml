@@ -20,3 +20,7 @@ run = "ruff format ."
 [tasks."format:check"]
 description = "Check the formatting Python files with ruff"
 run = "ruff format --check ."
+
+[tasks.typecheck]
+description = "Run pyright type checker"
+run = "uv run pyright ./*.py"
