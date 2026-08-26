@@ -3,27 +3,33 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from http import HTTPStatus
-from typing import TYPE_CHECKING, TypedDict, TypeVar
+from typing import Any, TypedDict
 from urllib.parse import urlparse
 
 import httpx
 import jwt
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
 GITHUB_API_VERSION = "2022-11-28"
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar("T")
+
+class GitHubApiError(Exception):
+    """Raised when interacting with the GitHub API fails."""
+
+    def __init__(self, message: str, *, network: bool = False) -> None:
+        super().__init__(message)
+        self.network = network
 
 
-class AuthStatus(TypedDict):
-    repo: str
+@dataclass(frozen=True)
+class AuthenticatedState:
     installation_id: int
+    iat: str
+    repo: str
     expires_at: str
 
 
@@ -34,68 +40,47 @@ class AppIdentity(TypedDict):
     bot_user_id: int
 
 
+@dataclass(frozen=True)
+class GitHubHostConfig:
+    hostname: str
+    api_base: str | None
+
+
 class AuthState:
     """Thread-safe holder for GitHub App installation authentication state."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._installation_id: int | None = None
-        self._iat: str | None = None
-        self._repo: str | None = None
-        self._expires_at: str | None = None
+        self._state: AuthenticatedState | None = None
 
     @property
     def is_authenticated(self) -> bool:
         with self._lock:
-            return self._iat is not None and self._installation_id is not None
+            return self._state is not None
 
     def is_token_expired(self) -> bool:
         with self._lock:
-            if self._expires_at is None:
+            if self._state is None:
                 return True
             try:
                 expires_dt = datetime.fromisoformat(
-                    self._expires_at.replace("Z", "+00:00")
+                    self._state.expires_at.replace("Z", "+00:00")
                 )
                 return datetime.now(UTC) >= expires_dt
             except (ValueError, AttributeError):
                 return True
 
-    def get_iat(self) -> str | None:
+    def get_state(self) -> AuthenticatedState | None:
         with self._lock:
-            return self._iat
+            return self._state
 
-    def get_status(self) -> AuthStatus | None:
+    def set(self, state: AuthenticatedState) -> None:
         with self._lock:
-            if self._iat is None or self._installation_id is None:
-                return None
-            return {
-                "repo": self._repo,  # type: ignore[typeddict-item]
-                "installation_id": self._installation_id,
-                "expires_at": self._expires_at,  # type: ignore[typeddict-item]
-            }
+            self._state = state
 
-    def set(
-        self,
-        installation_id: int,
-        iat: str,
-        repo: str,
-        expires_at: str,
-    ) -> None:
+    def clear(self) -> None:
         with self._lock:
-            self._installation_id = installation_id
-            self._iat = iat
-            self._repo = repo
-            self._expires_at = expires_at
-
-    def clear(self) -> str | None:
-        with self._lock:
-            old_iat = self._iat
-            self._installation_id = None
-            self._iat = None
-            self._repo = None
-            self._expires_at = None
-            return old_iat
+            self._state = None
 
 
 class GitHubAppAuth:
@@ -104,15 +89,23 @@ class GitHubAppAuth:
     JWT generation, installation lookup, IAT creation/revocation.
     """
 
-    def __init__(self, client_id: str, private_key_pem: str, host: str | None) -> None:
+    def __init__(
+        self,
+        client_id: str,
+        private_key_pem: str,
+        host_config: GitHubHostConfig,
+    ) -> None:
         self._client_id = client_id
         self._private_key = private_key_pem
-        normalized = _normalize_host(host)
-        if normalized is None or normalized == "github.com":
-            self._api_base: str | None = "https://api.github.com"
-        else:
-            self._api_base = None
-        self._host = normalized or "github.com"
+        self._host = host_config.hostname
+        self._api_base: str | None = host_config.api_base
+        self._base_lock = threading.Lock()
+        self._client = httpx.Client(timeout=30)
+        if self._api_base is None:
+            try:
+                self._resolve_api_base()
+            except GitHubApiError as e:
+                logger.warning("Could not resolve GitHub API base at startup: %s", e)
 
     def _generate_jwt(self) -> str:
         now = int(time.time())
@@ -123,118 +116,147 @@ class GitHubAppAuth:
         }
         return jwt.encode(payload, self._private_key, algorithm="RS256")
 
-    def _jwt_headers(self) -> dict[str, str]:
+    def _base_headers(self) -> dict[str, str]:
         return {
             "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {self._generate_jwt()}",
             "X-GitHub-Api-Version": GITHUB_API_VERSION,
         }
 
-    def _api_candidates(self) -> list[str]:
+    def _auth_headers(self, token: str) -> dict[str, str]:
+        headers = self._base_headers()
+        headers["Authorization"] = f"Bearer {token}"
+        return headers
+
+    def _jwt_headers(self) -> dict[str, str]:
+        return self._auth_headers(self._generate_jwt())
+
+    def _resolve_api_base(self) -> str:
         if self._api_base is not None:
-            return [self._api_base]
-        return [f"https://api.{self._host}", f"https://{self._host}/api/v3"]
+            return self._api_base
+        with self._base_lock:
+            if self._api_base is not None:
+                return self._api_base
+            self._api_base = self._probe_api_base()
+            return self._api_base
 
-    def _try_with_candidates(self, api_call: Callable[[str], T]) -> T:
-        candidates = self._api_candidates()
-        if len(candidates) == 1:
-            return api_call(candidates[0])
-
-        network_error: Exception | None = None
-        auth_error: Exception | None = None
-
+    def _probe_api_base(self) -> str:
+        candidates = [
+            f"https://api.{self._host}",
+            f"https://{self._host}/api/v3",
+        ]
+        network_error: GitHubApiError | None = None
         for base in candidates:
             try:
-                result = api_call(base)
-                self._api_base = base
-                return result
+                resp = self._client.get(f"{base}/app", headers=self._jwt_headers())
+                resp.raise_for_status()
+                return base
             except httpx.HTTPStatusError as e:
                 status = e.response.status_code if e.response is not None else None
                 if status == HTTPStatus.NOT_FOUND:
                     continue
-                auth_error = e
+                raise GitHubApiError(f"GitHub API returned HTTP {status}") from e
             except (httpx.TransportError, httpx.RequestError) as e:
-                network_error = e
-
+                network_error = GitHubApiError(
+                    f"Network error while probing API base: {e}",
+                    network=True,
+                )
         if network_error is not None:
             raise network_error
-        if auth_error is not None:
-            raise auth_error
-        raise RuntimeError(
+        raise GitHubApiError(
             f"Could not find a GitHub API at {self._host} "
             f"(tried {', '.join(candidates)})."
         )
 
-    def _get_app(self, base: str) -> AppIdentity:
-        headers = self._jwt_headers()
-        url = f"{base}/app"
-        with httpx.Client(timeout=30) as client:
-            resp = client.get(url, headers=headers)
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        headers: dict[str, str],
+    ) -> dict[str, Any]:
+        base = self._resolve_api_base()
+        url = f"{base}{path}"
+        try:
+            resp = self._client.request(method, url, headers=headers)
             resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code if e.response is not None else "unknown"
+            raise GitHubApiError(f"GitHub API returned HTTP {status}") from e
+        except (httpx.TransportError, httpx.RequestError) as e:
+            raise GitHubApiError(f"Network error: {e}", network=True) from e
+        try:
             data = resp.json()
-            slug = data["slug"]
-            bot_headers = {
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            }
-            bot_resp = client.get(f"{base}/users/{slug}[bot]", headers=bot_headers)
-            bot_resp.raise_for_status()
-            bot_data = bot_resp.json()
-            return AppIdentity(
-                id=data["id"],
-                slug=slug,
-                name=data["name"],
-                bot_user_id=bot_data["id"],
-            )
+        except ValueError as e:
+            raise GitHubApiError(f"Invalid JSON in API response: {e}") from e
+        if not isinstance(data, dict):
+            raise GitHubApiError(f"Expected JSON object, got {type(data).__name__}")
+        return data
 
     def get_app(self) -> AppIdentity:
-        return self._try_with_candidates(self._get_app)
-
-    def _get_installation_id(self, base: str, owner: str, repo: str) -> int:
-        url = f"{base}/repos/{owner}/{repo}/installation"
-        with httpx.Client(timeout=30) as client:
-            resp = client.get(url, headers=self._jwt_headers())
-            resp.raise_for_status()
-            data = resp.json()
-            return data["id"]
+        data = self._request("GET", "/app", headers=self._jwt_headers())
+        slug = data.get("slug")
+        if slug is None:
+            raise GitHubApiError("GitHub API response missing 'slug' field")
+        bot_data = self._request(
+            "GET", f"/users/{slug}[bot]", headers=self._base_headers()
+        )
+        bot_user_id = bot_data.get("id")
+        if bot_user_id is None:
+            raise GitHubApiError("GitHub API response missing bot user 'id' field")
+        app_id = data.get("id")
+        if app_id is None:
+            raise GitHubApiError("GitHub API response missing 'id' field")
+        app_name = data.get("name")
+        if app_name is None:
+            raise GitHubApiError("GitHub API response missing 'name' field")
+        return AppIdentity(
+            id=app_id,
+            slug=slug,
+            name=app_name,
+            bot_user_id=bot_user_id,
+        )
 
     def get_installation_id(self, owner: str, repo: str) -> int:
-        return self._try_with_candidates(
-            lambda base: self._get_installation_id(base, owner, repo)
+        data = self._request(
+            "GET",
+            f"/repos/{owner}/{repo}/installation",
+            headers=self._jwt_headers(),
         )
-
-    def _create_iat(self, base: str, installation_id: int) -> tuple[str, str]:
-        url = f"{base}/app/installations/{installation_id}/access_tokens"
-        with httpx.Client(timeout=30) as client:
-            resp = client.post(url, headers=self._jwt_headers())
-            resp.raise_for_status()
-            data = resp.json()
-            return data["token"], data["expires_at"]
+        installation_id = data.get("id")
+        if installation_id is None:
+            raise GitHubApiError("GitHub API response missing installation 'id' field")
+        return installation_id
 
     def create_iat(self, installation_id: int) -> tuple[str, str]:
-        return self._try_with_candidates(
-            lambda base: self._create_iat(base, installation_id)
+        data = self._request(
+            "POST",
+            f"/app/installations/{installation_id}/access_tokens",
+            headers=self._jwt_headers(),
         )
+        token = data.get("token")
+        if token is None:
+            raise GitHubApiError("GitHub API response missing 'token' field")
+        expires_at = data.get("expires_at")
+        if expires_at is None:
+            raise GitHubApiError("GitHub API response missing 'expires_at' field")
+        return token, expires_at
 
     def revoke_iat(self, iat: str) -> bool:
-        if self._api_base is None:
-            return False
-        url = f"{self._api_base}/installation/token"
-        headers = {
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {iat}",
-            "X-GitHub-Api-Version": GITHUB_API_VERSION,
-        }
         try:
-            with httpx.Client(timeout=30) as client:
-                resp = client.delete(url, headers=headers)
-                return resp.status_code == HTTPStatus.NO_CONTENT
+            base = self._resolve_api_base()
+        except GitHubApiError as e:
+            logger.warning("Failed to resolve API base for token revocation: %s", e)
+            return False
+        url = f"{base}/installation/token"
+        try:
+            resp = self._client.delete(url, headers=self._auth_headers(iat))
+            return resp.status_code == HTTPStatus.NO_CONTENT
         except httpx.HTTPError as e:
             logger.warning("Failed to revoke installation token: %s", e)
             return False
 
 
-def _normalize_host(host: str | None) -> str | None:
+def _normalize_hostname(host: str | None) -> str | None:
     if host is None:
         return None
     stripped = host.strip().lower()
@@ -244,11 +266,18 @@ def _normalize_host(host: str | None) -> str | None:
     try:
         parsed = urlparse(candidate)
     except ValueError as e:
-        logger.error("GITHUB_APP_HOST %r could not be parsed as a URL: %s", stripped, e)
+        logger.error(
+            "GITHUB_APP_HOST %r could not be parsed as a URL: %s",
+            stripped,
+            e,
+        )
         return None
     hostname = parsed.hostname
     if not hostname:
-        logger.error("GITHUB_APP_HOST %r did not parse as having a hostname.", stripped)
+        logger.error(
+            "GITHUB_APP_HOST %r did not parse as having a hostname.",
+            stripped,
+        )
         return None
     hostname = hostname.rstrip(".")
     if hostname != stripped:
@@ -260,3 +289,10 @@ def _normalize_host(host: str | None) -> str | None:
             hostname,
         )
     return hostname
+
+
+def resolve_host(raw: str | None) -> GitHubHostConfig:
+    hostname = _normalize_hostname(raw)
+    if hostname is None or hostname == "github.com":
+        return GitHubHostConfig("github.com", "https://api.github.com")
+    return GitHubHostConfig(hostname, None)

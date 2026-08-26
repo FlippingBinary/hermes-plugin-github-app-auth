@@ -4,7 +4,7 @@ import logging
 import os
 
 from . import tools
-from .github_auth import GitHubAppAuth, _normalize_host
+from .github_auth import GitHubAppAuth, resolve_host
 from .schemas import LOGIN_SCHEMA, LOGOUT_SCHEMA
 
 logger = logging.getLogger(__name__)
@@ -13,37 +13,38 @@ logger = logging.getLogger(__name__)
 def register(ctx: tools.PluginContext) -> None:
     client_id = os.environ.get("GITHUB_APP_CLIENT_ID")
     private_key = os.environ.get("GITHUB_APP_PRIVATE_KEY")
-    host = _normalize_host(os.environ.get("GITHUB_APP_HOST"))
-    tools._github_host = host or "github.com"
+    host_config = resolve_host(os.environ.get("GITHUB_APP_HOST"))
+
+    auth: GitHubAppAuth | None = None
     if client_id is not None and private_key is not None:
-        tools._auth = GitHubAppAuth(client_id, private_key, host)
+        auth = GitHubAppAuth(client_id, private_key, host_config)
     else:
-        tools._auth = None
         logger.error(
             "GITHUB_APP_CLIENT_ID and GITHUB_APP_PRIVATE_KEY must be set "
             "for github_app_login to function"
         )
-    tools._ctx = ctx
+
+    plugin = tools.GitHubAppAuthPlugin(ctx, auth, host_config.hostname)
 
     ctx.register_tool(
         "github_app_login",
         "github-app-auth",
         LOGIN_SCHEMA,
-        tools._github_app_login_handler,
+        plugin.login,
     )
 
     ctx.register_tool(
         "github_app_logout",
         "github-app-auth",
         LOGOUT_SCHEMA,
-        tools._github_app_logout_handler,
+        plugin.logout,
     )
 
     ctx.register_system_prompt_section(
         "github-app-auth-guidance",
-        tools._build_guidance_text,
+        plugin.build_guidance_text,
         position="after_memory",
     )
-    ctx.register_hook("pre_llm_call", tools._pre_llm_call_hook)
-    ctx.register_hook("on_session_start", tools._on_session_start_hook)
-    ctx.register_middleware("tool_request", tools._terminal_env_middleware)
+    ctx.register_hook("pre_llm_call", plugin.pre_llm_call)
+    ctx.register_hook("on_session_start", plugin.on_session_start)
+    ctx.register_middleware("tool_request", plugin.terminal_env_middleware)

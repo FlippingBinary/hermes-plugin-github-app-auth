@@ -28,4 +28,4 @@ select = [
 # Plugin directory uses hyphens in its filesystem name; not an importable package.
 "__init__.py" = ["N999"]
 # Hermes PluginContext Protocol signature mandates 6 parameters.
-"tools.py" = ["PLR0913"]
+"tools.py" = ["PLR0913", "PLR0917"]
