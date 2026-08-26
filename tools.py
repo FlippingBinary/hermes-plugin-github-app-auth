@@ -5,7 +5,7 @@ import json
 import logging
 import shlex
 import threading
-from typing import TYPE_CHECKING, Any, Protocol, overload
+from typing import TYPE_CHECKING, Any
 
 from .github_auth import (
     AppIdentity,
@@ -16,7 +16,7 @@ from .github_auth import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from hermes_cli.plugins import PluginContext
 
 logger = logging.getLogger(__name__)
 
@@ -61,48 +61,6 @@ class AppIdentityCache:
     def set_failure(self) -> None:
         with self._lock:
             self._attempted = True
-
-
-class PluginContext(Protocol):
-    def register_tool(
-        self,
-        name: str,
-        toolset: str,
-        schema: JSONSchema,
-        handler: Callable[[ToolArgs], str],
-        *,
-        override: bool = False,
-        check_fn: Callable[..., bool] | None = None,
-    ) -> None: ...
-
-    def register_hook(
-        self,
-        event_name: str,
-        callback: Callable[..., Any],
-    ) -> None: ...
-
-    def register_middleware(
-        self,
-        kind: str,
-        callback: Callable[..., Any],
-    ) -> None: ...
-
-    def register_system_prompt_section(
-        self,
-        section_id: str,
-        content: str | Callable[..., str],
-        *,
-        position: str = "after_memory",
-        max_chars: int = 4000,
-    ) -> None: ...
-
-    @overload
-    def get_config(self, key: str) -> Any: ...
-
-    @overload
-    def get_config(self, key: str, default: Any) -> Any: ...
-
-    def get_config(self, key: str, default: Any = ...) -> Any: ...
 
 
 def _json_result(data: dict[str, Any]) -> str:
