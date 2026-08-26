@@ -25,7 +25,7 @@ select = [
 ]
 
 [lint.per-file-ignores]
-# Plugin directory uses hyphens in its filesystem name; not an importable package.
+# Plugin directory uses hyphens in its filesystem name
 "__init__.py" = ["N999"]
-# Hermes PluginContext Protocol signature mandates 6 parameters.
+# Git identity helper currently violates these rules
 "tools.py" = ["PLR0913", "PLR0917"]
