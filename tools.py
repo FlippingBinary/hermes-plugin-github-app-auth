@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import base64
 import json
 import logging
-import shlex
 import threading
 from typing import TYPE_CHECKING, Any
 
+from .git_config import GitConfig
 from .github_auth import (
     AppIdentity,
     AuthenticatedState,
@@ -22,13 +21,6 @@ logger = logging.getLogger(__name__)
 
 ToolArgs = dict[str, Any]
 JSONSchema = dict[str, Any]
-
-_IDENTITY_CONFIG_KEYS = (
-    "author_name",
-    "author_email",
-    "committer_name",
-    "committer_email",
-)
 
 
 class AppIdentityCache:
@@ -69,45 +61,6 @@ def _json_result(data: dict[str, Any]) -> str:
 
 def _error_result(message: str) -> str:
     return _json_result({"status": "error", "message": message})
-
-
-def _build_noreply_email(app: AppIdentity) -> str:
-    return f"{app['bot_user_id']}+{app['slug']}[bot]@users.noreply.github.com"
-
-
-def _build_git_env_prefix(
-    host: str,
-    gh_token: str,
-    author_name: str,
-    author_email: str,
-    committer_name: str,
-    committer_email: str,
-) -> str:
-    basic_auth = base64.b64encode(f"x-access-token:{gh_token}".encode()).decode()
-
-    config_pairs: list[tuple[str, str]] = [
-        (f"url.https://{host}/.insteadOf", f"git@{host}:"),
-        (f"url.https://{host}/.insteadOf", f"ssh://git@{host}/"),
-        (
-            f"http.https://{host}/.extraHeader",
-            f"Authorization: Basic {basic_auth}",
-        ),
-    ]
-
-    env_parts = [
-        f"GH_TOKEN={shlex.quote(gh_token)}",
-        "GIT_CONFIG_GLOBAL=/dev/null",
-        f"GIT_AUTHOR_NAME={shlex.quote(author_name)}",
-        f"GIT_AUTHOR_EMAIL={shlex.quote(author_email)}",
-        f"GIT_COMMITTER_NAME={shlex.quote(committer_name)}",
-        f"GIT_COMMITTER_EMAIL={shlex.quote(committer_email)}",
-        f"GIT_CONFIG_COUNT={len(config_pairs)}",
-    ]
-    for i, (key, value) in enumerate(config_pairs):
-        env_parts.append(f"GIT_CONFIG_KEY_{i}={shlex.quote(key)}")
-        env_parts.append(f"GIT_CONFIG_VALUE_{i}={shlex.quote(value)}")
-
-    return f"export {' '.join(env_parts)}; "
 
 
 class GitHubAppAuthPlugin:
@@ -169,29 +122,8 @@ class GitHubAppAuthPlugin:
 
     def _should_fetch_identity(self) -> bool:
         return any(
-            self.ctx.get_config(key, None) is None for key in _IDENTITY_CONFIG_KEYS
-        )
-
-    def _resolve_git_identity(self) -> tuple[str, str, str, str]:
-        identity = self._identity_cache.get()
-        name_fallback = identity["name"] if identity is not None else None
-        email_fallback = (
-            _build_noreply_email(identity) if identity is not None else None
-        )
-
-        def resolve(key: str, fallback: str | None) -> str:
-            configured = self.ctx.get_config(key, None)
-            if configured is not None:
-                return configured
-            if fallback is not None:
-                return fallback
-            return ""
-
-        return (
-            resolve("author_name", name_fallback),
-            resolve("author_email", email_fallback),
-            resolve("committer_name", name_fallback),
-            resolve("committer_email", email_fallback),
+            self.ctx.get_config(key, None) is None
+            for key in GitConfig.IDENTITY_CONFIG_KEYS
         )
 
     def _build_failure_announcement(self, *, network: bool, error: str) -> str:
@@ -380,18 +312,8 @@ class GitHubAppAuthPlugin:
         if state is not None and not expired:
             gh_token = state.iat
 
-        author_name, author_email, committer_name, committer_email = (
-            self._resolve_git_identity()
-        )
-
-        env_prefix = _build_git_env_prefix(
-            self.host,
-            gh_token,
-            author_name,
-            author_email,
-            committer_name,
-            committer_email,
-        )
+        git_config = GitConfig.resolve(self.ctx, self.host, self._identity_cache.get())
+        env_prefix = git_config.build_env_prefix(gh_token)
 
         modified = dict(args)
         modified_any = False

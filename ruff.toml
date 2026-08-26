@@ -28,5 +28,3 @@ select = [
 [lint.per-file-ignores]
 # Plugin directory uses hyphens in its filesystem name
 "__init__.py" = ["N999"]
-# Git identity helper currently violates these rules
-"tools.py" = ["PLR0913", "PLR0917"]

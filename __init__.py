@@ -42,7 +42,7 @@ def register(ctx: tools.PluginContext) -> None:
 
     ctx.register_system_prompt_section(
         "github-app-auth-guidance",
-        plugin.build_guidance_text,
+        lambda *_: plugin.build_guidance_text(),
         position="after_memory",
     )
     ctx.register_hook("pre_llm_call", plugin.pre_llm_call)
