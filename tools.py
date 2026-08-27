@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 from .git_config import GitConfig
 from .github_auth import (
@@ -21,6 +23,46 @@ logger = logging.getLogger(__name__)
 
 ToolArgs = dict[str, Any]
 JSONSchema = dict[str, Any]
+
+_OWNER_RE = r"[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}"
+_REPO_RE = r"[a-zA-Z0-9](?:[a-zA-Z0-9._-]*[a-zA-Z0-9])?"
+_REPO_SLUG_RE = re.compile(rf"^({_OWNER_RE})/({_REPO_RE})$")
+_GIT_SUFFIX_RE = re.compile(r"\.git$")
+_EXPECTED_URL_PATH_SEGMENTS = 2
+
+
+def _parse_repo_input(raw: str, host: str) -> tuple[str, str]:
+    """Parse owner/repo from a slug or URL on the configured host.
+
+    Raises ValueError with a descriptive message on failure.
+    """
+    raw = raw.strip()
+
+    match = _REPO_SLUG_RE.match(raw)
+    if match:
+        return match.group(1), match.group(2)
+
+    candidate = raw if "://" in raw else f"https://{raw}"
+    parsed = urlparse(candidate)
+
+    if parsed.hostname and parsed.hostname != host:
+        raise ValueError(
+            f"Cannot login to {parsed.hostname}: this plugin only "
+            f"authenticates repos on {host}."
+        )
+
+    if parsed.hostname:
+        path = _GIT_SUFFIX_RE.sub("", parsed.path.strip("/"))
+        parts = path.split("/", 1)
+        if len(parts) == _EXPECTED_URL_PATH_SEGMENTS:
+            match = _REPO_SLUG_RE.match(f"{parts[0]}/{parts[1].rstrip('/')}")
+            if match:
+                return match.group(1), match.group(2)
+
+    raise ValueError(
+        f"repo must be in 'owner/repo' format (e.g. 'octocat/Hello-World') "
+        f"or a {host} URL"
+    )
 
 
 class AppIdentityCache:
@@ -206,10 +248,10 @@ class GitHubAppAuthPlugin:
                 "be set by the user."
             )
 
-        owner, _, repo_name = args.get("repo", "").partition("/")
-        owner, repo_name = owner.strip(), repo_name.strip()
-        if not owner or not repo_name:
-            return _error_result("repo must be in 'owner/repo' format")
+        try:
+            owner, repo_name = _parse_repo_input(args.get("repo", ""), self.host)
+        except ValueError as e:
+            return _error_result(str(e))
 
         try:
             installation_id = self.auth.get_installation_id(owner, repo_name)
