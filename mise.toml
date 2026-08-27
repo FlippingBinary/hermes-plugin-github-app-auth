@@ -10,7 +10,7 @@ description = "Run ruff linter"
 run = "ruff check ."
 
 [tasks."lint:fix"]
-description = "Run ruff linter"
+description = "Run ruff linter with --fix"
 run = "ruff check --fix ."
 
 [tasks.format]
