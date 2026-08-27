@@ -39,7 +39,7 @@ Documentation = "https://hermes-agent.nousresearch.com/docs/developer-guide/plug
 Issues = "https://github.com/FlippingBinary/hermes-plugin-github-app-auth/issues"
 
 [dependency-groups]
-dev = ["pytest>=8,<9"]
+dev = ["pytest>=8,<10"]
 
 [tool.pyright]
 include = ["__init__.py", "src", "tests"]
