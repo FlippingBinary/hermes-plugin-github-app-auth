@@ -32,6 +32,13 @@ class AuthenticatedState:
     repo: str
     expires_at: str
 
+    def is_expired(self) -> bool:
+        try:
+            expires_dt = datetime.fromisoformat(self.expires_at.replace("Z", "+00:00"))
+            return datetime.now(UTC) >= expires_dt
+        except (ValueError, AttributeError):
+            return True
+
 
 class AppIdentity(TypedDict):
     id: int
@@ -44,43 +51,6 @@ class AppIdentity(TypedDict):
 class GitHubHostConfig:
     hostname: str
     api_base: str | None
-
-
-class AuthState:
-    """Thread-safe holder for GitHub App installation authentication state."""
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._state: AuthenticatedState | None = None
-
-    @property
-    def is_authenticated(self) -> bool:
-        with self._lock:
-            return self._state is not None
-
-    def is_token_expired(self) -> bool:
-        with self._lock:
-            if self._state is None:
-                return True
-            try:
-                expires_dt = datetime.fromisoformat(
-                    self._state.expires_at.replace("Z", "+00:00")
-                )
-                return datetime.now(UTC) >= expires_dt
-            except (ValueError, AttributeError):
-                return True
-
-    def get_state(self) -> AuthenticatedState | None:
-        with self._lock:
-            return self._state
-
-    def set(self, state: AuthenticatedState) -> None:
-        with self._lock:
-            self._state = state
-
-    def clear(self) -> None:
-        with self._lock:
-            self._state = None
 
 
 class GitHubAppAuth:

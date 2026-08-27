@@ -7,11 +7,12 @@ import threading
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
+import jwt
+
 from .git_config import GitConfig
 from .github_auth import (
     AppIdentity,
     AuthenticatedState,
-    AuthState,
     GitHubApiError,
     GitHubAppAuth,
 )
@@ -121,7 +122,7 @@ class GitHubAppAuthPlugin:
         self.ctx = ctx
         self.auth = auth
         self.host = host
-        self._auth_state = AuthState()
+        self._auth_state: AuthenticatedState | None = None
         self._identity_cache = AppIdentityCache()
         self._lock = threading.Lock()
         self._pending_announcement: str | None = None
@@ -216,22 +217,38 @@ class GitHubAppAuthPlugin:
 
     # -- Token lifecycle ----------------------------------------------
 
+    def _get_auth_state_and_expiry(
+        self,
+    ) -> tuple[AuthenticatedState | None, bool]:
+        with self._lock:
+            if self._auth_state is None:
+                return None, True
+            return self._auth_state, self._auth_state.is_expired()
+
     def _revoke_and_clear(self, state: AuthenticatedState) -> bool:
         revoked = False
         if self.auth is not None:
             revoked = self.auth.revoke_iat(state.iat)
-        self._auth_state.clear()
+        with self._lock:
+            self._auth_state = None
         return revoked
 
     def _sweep_expired_token(self) -> str | None:
-        if not (
-            self._auth_state.is_authenticated and self._auth_state.is_token_expired()
-        ):
-            return None
-        state = self._auth_state.get_state()
-        if state is None:
-            return None
-        self._revoke_and_clear(state)
+        with self._lock:
+            if self._auth_state is None or not self._auth_state.is_expired():
+                return None
+            state = self._auth_state
+            self._auth_state = None
+
+        if self.auth is not None:
+            auth = self.auth
+
+            def _revoke() -> None:
+                if not auth.revoke_iat(state.iat):
+                    logger.warning("Failed to revoke expired token for %s", state.repo)
+
+            threading.Thread(target=_revoke, daemon=True).start()
+
         return (
             f"[GitHub App Auth] Token for {state.repo} has expired. Use "
             f"github_app_login again to re-authenticate before attempting "
@@ -256,14 +273,14 @@ class GitHubAppAuthPlugin:
         try:
             installation_id = self.auth.get_installation_id(owner, repo_name)
             token, expires_at = self.auth.create_iat(installation_id)
-            self._auth_state.set(
-                AuthenticatedState(
-                    installation_id=installation_id,
-                    iat=token,
-                    repo=f"{owner}/{repo_name}",
-                    expires_at=expires_at,
-                )
+            state = AuthenticatedState(
+                installation_id=installation_id,
+                iat=token,
+                repo=f"{owner}/{repo_name}",
+                expires_at=expires_at,
             )
+            with self._lock:
+                self._auth_state = state
             if self._should_fetch_identity():
                 self._attempt_identity_fetch()
             return _json_result(
@@ -274,12 +291,13 @@ class GitHubAppAuthPlugin:
                     "expires_at": expires_at,
                 }
             )
-        except GitHubApiError as e:
+        except (GitHubApiError, jwt.InvalidKeyError) as e:
             logger.exception("github_app_login failed")
             return _error_result(str(e))
 
     def logout(self, args: ToolArgs, **kwargs: Any) -> str:
-        state = self._auth_state.get_state()
+        with self._lock:
+            state = self._auth_state
         if state is None:
             return _json_result({"status": "already_logged_out"})
         try:
@@ -331,8 +349,7 @@ class GitHubAppAuthPlugin:
         if not isinstance(args, dict):
             return None
 
-        state = self._auth_state.get_state()
-        expired = self._auth_state.is_token_expired()
+        state, expired = self._get_auth_state_and_expiry()
 
         gh_token = ""
         if state is not None and not expired:
