@@ -77,6 +77,9 @@ class GitHubAppAuth:
             except GitHubApiError as e:
                 logger.warning("Could not resolve GitHub API base at startup: %s", e)
 
+    def close(self) -> None:
+        self._client.close()
+
     def _generate_jwt(self) -> str:
         now = int(time.time())
         payload = {

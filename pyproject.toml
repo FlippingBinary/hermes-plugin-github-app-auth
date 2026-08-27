@@ -39,4 +39,4 @@ Documentation = "https://hermes-agent.nousresearch.com/docs/developer-guide/plug
 Issues = "https://github.com/FlippingBinary/hermes-plugin-github-app-auth/issues"
 
 [tool.pyright]
-extraPaths = ["vendor/hermes-agent"]
+extraPaths = ["src", "vendor/hermes-agent"]
