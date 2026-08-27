@@ -38,5 +38,14 @@ Repository = "https://github.com/FlippingBinary/hermes-plugin-github-app-auth"
 Documentation = "https://hermes-agent.nousresearch.com/docs/developer-guide/plugins"
 Issues = "https://github.com/FlippingBinary/hermes-plugin-github-app-auth/issues"
 
+[dependency-groups]
+dev = ["pytest>=8,<9"]
+
 [tool.pyright]
+include = ["__init__.py", "src", "tests"]
+exclude = ["vendor"]
 extraPaths = ["src", "vendor/hermes-agent"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

@@ -23,4 +23,8 @@ run = "ruff format --check ."
 
 [tasks.typecheck]
 description = "Run pyright type checker"
-run = "uv run pyright ./*.py"
+run = "uv run pyright"
+
+[tasks.test]
+description = "Run pytest tests"
+run = "uv run pytest"

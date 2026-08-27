@@ -26,5 +26,8 @@ select = [
 ]
 
 [lint.per-file-ignores]
-# Plugin directory uses hyphens in its filesystem name
-"__init__.py" = ["N999"]
+# Plugin root directory uses hyphens in its filesystem name; __init__.py
+# bootstraps src/ onto sys.path before importing (E402 expected).
+"__init__.py" = ["N999", "E402"]
+# Tests use assert and mock patterns
+"tests/**/*.py" = ["S101", "S105", "S106"]
